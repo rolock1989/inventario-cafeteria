@@ -35,6 +35,7 @@ export default function HistoryPage() {
 
         setMessage(records.length > 0 ? "Historial cargado." : "Aun no hay inventarios enviados.");
       } catch (error) {
+        console.error("Error al cargar historial", error);
         setMessage(error instanceof Error ? error.message : "No se pudo cargar el historial.");
       }
     }

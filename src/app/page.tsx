@@ -20,6 +20,7 @@ export default function LoginPage() {
         setSelectedUserId(activeUsers[0]?.id ?? "");
         setMessage(activeUsers.length > 0 ? "Selecciona tu usuario." : "No hay usuarios activos.");
       } catch (error) {
+        console.error("Error al cargar usuarios para login", error);
         setMessage(error instanceof Error ? error.message : "No se pudieron cargar los usuarios.");
       }
     }

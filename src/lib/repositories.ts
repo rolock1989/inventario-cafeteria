@@ -57,6 +57,12 @@ function requireSupabase() {
   return supabase;
 }
 
+function requirePersistence() {
+  if (!usingSupabase()) {
+    throw new Error("No se puede guardar porque Supabase no esta configurado. No se simulo ningun cambio.");
+  }
+}
+
 function mapProduct(row: ProductRow): Product {
   return {
     id: row.id,
@@ -128,9 +134,7 @@ export async function listProducts(options: { activeOnly?: boolean } = {}) {
 }
 
 export async function createProduct(input: Omit<Product, "id">) {
-  if (!usingSupabase()) {
-    return { ...input, id: `prd-${Date.now()}` };
-  }
+  requirePersistence();
 
   const { data, error } = await requireSupabase()
     .from("products")
@@ -151,32 +155,38 @@ export async function createProduct(input: Omit<Product, "id">) {
 }
 
 export async function updateProductRecord(id: string, patch: Partial<Omit<Product, "id">>) {
-  if (!usingSupabase()) {
-    return;
-  }
+  requirePersistence();
 
-  const { error } = await requireSupabase()
+  const { data, error } = await requireSupabase()
     .from("products")
     .update({
       ...patch,
       updated_at: new Date().toISOString()
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id")
+    .single();
 
   if (error) {
     throw new Error(`No se pudo guardar el producto: ${error.message}`);
   }
+
+  if (!data) {
+    throw new Error("No se pudo guardar el producto: Supabase no devolvio la fila actualizada. Revisa permisos RLS.");
+  }
 }
 
 export async function deleteProductRecord(id: string) {
-  if (!usingSupabase()) {
-    return;
-  }
+  requirePersistence();
 
-  const { error } = await requireSupabase().from("products").delete().eq("id", id);
+  const { data, error } = await requireSupabase().from("products").delete().eq("id", id).select("id").single();
 
   if (error) {
     throw new Error(`No se pudo eliminar el producto: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("No se pudo eliminar el producto: Supabase no devolvio la fila eliminada. Revisa permisos RLS.");
   }
 }
 
@@ -219,9 +229,7 @@ export async function getProfileById(id: string) {
 }
 
 export async function createUser(input: Omit<AppUser, "id">) {
-  if (!usingSupabase()) {
-    return { ...input, id: `usr-${Date.now()}` };
-  }
+  requirePersistence();
 
   const { data, error } = await requireSupabase()
     .from("profiles")
@@ -243,54 +251,74 @@ export async function createUser(input: Omit<AppUser, "id">) {
 }
 
 export async function updateUserRecord(id: string, patch: Partial<Omit<AppUser, "id">>) {
-  if (!usingSupabase()) {
-    return;
-  }
+  requirePersistence();
 
-  const { error } = await requireSupabase()
+  const { data, error } = await requireSupabase()
     .from("profiles")
     .update({
       ...patch,
       updated_at: new Date().toISOString()
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id")
+    .single();
 
   if (error) {
     throw new Error(`No se pudo guardar el usuario: ${error.message}`);
   }
+
+  if (!data) {
+    throw new Error("No se pudo guardar el usuario: Supabase no devolvio la fila actualizada. Revisa permisos RLS.");
+  }
 }
 
 export async function deleteUserRecord(id: string) {
-  if (!usingSupabase()) {
-    return;
-  }
+  requirePersistence();
 
-  const { error } = await requireSupabase().from("profiles").delete().eq("id", id);
+  const { data, error } = await requireSupabase().from("profiles").delete().eq("id", id).select("id").single();
 
   if (error) {
     throw new Error(`No se pudo eliminar el usuario: ${error.message}`);
   }
+
+  if (!data) {
+    throw new Error("No se pudo eliminar el usuario: Supabase no devolvio la fila eliminada. Revisa permisos RLS.");
+  }
 }
 
 export async function loadCurrentUser() {
-  const fallback = mockUsers[0];
+  if (!usingSupabase()) {
+    return mockUsers[0];
+  }
 
   if (typeof window === "undefined") {
-    return fallback;
+    throw new Error("No se pudo cargar el usuario actual en el servidor.");
   }
 
   const storedUserId = window.localStorage.getItem("inventario-cafe-user-id");
 
   if (!storedUserId) {
     const users = await listUsers({ activeOnly: true });
-    return users[0] ?? fallback;
+    const user = users[0];
+
+    if (!user) {
+      throw new Error("No hay usuarios activos en Supabase.");
+    }
+
+    return user;
   }
 
   try {
     return await getProfileById(storedUserId);
   } catch {
     const users = await listUsers({ activeOnly: true });
-    return users[0] ?? fallback;
+    const user = users[0];
+
+    if (!user) {
+      throw new Error("No hay usuarios activos en Supabase.");
+    }
+
+    return user;
   }
 }
 
@@ -338,9 +366,7 @@ export async function getInventoryRecord(id: string) {
 }
 
 export async function submitInventoryRecord(user: AppUser, items: InventoryItem[]) {
-  if (!usingSupabase()) {
-    return;
-  }
+  requirePersistence();
 
   const client = requireSupabase();
   const now = new Date().toISOString();

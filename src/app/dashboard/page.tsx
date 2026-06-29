@@ -19,6 +19,7 @@ export default function DashboardPage() {
         setInventories(records);
         setMessage(records.length > 0 ? "Resumen actualizado." : "Aun no hay inventarios enviados.");
       } catch (error) {
+        console.error("Error al cargar dashboard", error);
         setMessage(error instanceof Error ? error.message : "No se pudo cargar el dashboard.");
       }
     }

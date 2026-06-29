@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Coffee, History, Package, Users, ClipboardList } from "lucide-react";
-import { getCurrentUser } from "@/lib/inventory";
 import { loadCurrentUser } from "@/lib/repositories";
 import { useEffect, useState } from "react";
 import { AppUser } from "@/lib/types";
@@ -18,12 +17,29 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [user, setUser] = useState<AppUser>(() => getCurrentUser());
+  const [user, setUser] = useState<AppUser>({
+    id: "",
+    name: "Cargando usuario",
+    email: "",
+    role: "trabajador",
+    shift: "",
+    active: true
+  });
 
   useEffect(() => {
     loadCurrentUser()
       .then(setUser)
-      .catch(() => setUser(getCurrentUser()));
+      .catch((error) => {
+        console.error("Error al cargar usuario actual", error);
+        setUser({
+          id: "",
+          name: "Error al cargar usuario",
+          email: "",
+          role: "trabajador",
+          shift: "Revisa Supabase",
+          active: false
+        });
+      });
   }, []);
 
   const visibleItems = navItems.filter((item) => item.roles.includes(user.role));

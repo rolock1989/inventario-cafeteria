@@ -20,6 +20,7 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
         setInventory(record ?? null);
         setMessage(record ? "Detalle cargado." : "Inventario no encontrado.");
       } catch (error) {
+        console.error("Error al cargar detalle de inventario", error);
         setMessage(error instanceof Error ? error.message : "No se pudo cargar el detalle.");
       }
     }

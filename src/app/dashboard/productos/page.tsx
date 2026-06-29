@@ -26,6 +26,7 @@ export default function ProductsPage() {
       setProducts(await listProducts());
       setMessage("Productos cargados.");
     } catch (error) {
+      console.error("Error al cargar productos", error);
       setMessage(error instanceof Error ? error.message : "No se pudieron cargar los productos.");
     } finally {
       setLoading(false);
@@ -53,6 +54,7 @@ export default function ProductsPage() {
       setForm(emptyProduct);
       setMessage("Producto guardado correctamente.");
     } catch (error) {
+      console.error("Error al crear producto", error);
       setMessage(error instanceof Error ? error.message : "No se pudo guardar el producto.");
     }
   }
@@ -72,6 +74,7 @@ export default function ProductsPage() {
       });
       setMessage("Producto guardado correctamente.");
     } catch (error) {
+      console.error("Error al guardar producto", error);
       setMessage(error instanceof Error ? error.message : "No se pudo guardar el producto.");
     } finally {
       setSavingId(null);
@@ -90,6 +93,7 @@ export default function ProductsPage() {
       setProducts((current) => current.filter((currentProduct) => currentProduct.id !== product.id));
       setMessage("Producto eliminado correctamente.");
     } catch (error) {
+      console.error("Error al eliminar producto", error);
       setMessage(error instanceof Error ? error.message : "No se pudo eliminar el producto.");
     }
   }

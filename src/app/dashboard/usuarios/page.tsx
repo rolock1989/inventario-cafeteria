@@ -27,6 +27,7 @@ export default function UsersPage() {
       setUsers(await listUsers());
       setMessage("Usuarios cargados.");
     } catch (error) {
+      console.error("Error al cargar usuarios", error);
       setMessage(error instanceof Error ? error.message : "No se pudieron cargar los usuarios.");
     } finally {
       setLoading(false);
@@ -55,6 +56,7 @@ export default function UsersPage() {
       setForm(emptyUser);
       setMessage("Usuario guardado correctamente.");
     } catch (error) {
+      console.error("Error al crear usuario", error);
       setMessage(error instanceof Error ? error.message : "No se pudo guardar el usuario.");
     }
   }
@@ -75,6 +77,7 @@ export default function UsersPage() {
       });
       setMessage("Usuario guardado correctamente.");
     } catch (error) {
+      console.error("Error al guardar usuario", error);
       setMessage(error instanceof Error ? error.message : "No se pudo guardar el usuario.");
     } finally {
       setSavingId(null);
@@ -93,6 +96,7 @@ export default function UsersPage() {
       setUsers((current) => current.filter((currentUser) => currentUser.id !== user.id));
       setMessage("Usuario eliminado correctamente.");
     } catch (error) {
+      console.error("Error al eliminar usuario", error);
       setMessage(error instanceof Error ? error.message : "No se pudo eliminar el usuario.");
     }
   }

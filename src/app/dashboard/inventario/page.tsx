@@ -24,6 +24,7 @@ export default function InventoryPage() {
         setRows(createInventoryRows(products));
         setStatus(`Inventario de ${user.name}`);
       } catch (error) {
+        console.error("Error al cargar inventario", error);
         setStatus(error instanceof Error ? error.message : "No se pudo cargar el inventario.");
       }
     }
@@ -100,6 +101,7 @@ export default function InventoryPage() {
       );
       setStatus("Inventario enviado y guardado correctamente.");
     } catch (error) {
+      console.error("Error al enviar inventario", error);
       setStatus(error instanceof Error ? error.message : "No se pudo enviar el inventario.");
     } finally {
       setSubmitting(false);
