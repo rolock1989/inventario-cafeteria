@@ -2,9 +2,9 @@
 
 import { Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { getProducts } from "@/lib/inventory";
+import { createProduct, deleteProductRecord, listProducts, updateProductRecord } from "@/lib/repositories";
 import { Product } from "@/lib/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const emptyProduct: Omit<Product, "id"> = {
   name: "",
@@ -14,30 +14,84 @@ const emptyProduct: Omit<Product, "id"> = {
 };
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>(getProducts());
+  const [products, setProducts] = useState<Product[]>([]);
   const [form, setForm] = useState(emptyProduct);
+  const [message, setMessage] = useState("Cargando productos...");
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
-  function addProduct() {
-    if (!form.name || !form.category || !form.unit) {
+  async function loadProducts() {
+    try {
+      setLoading(true);
+      setProducts(await listProducts());
+      setMessage("Productos cargados.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudieron cargar los productos.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  async function addProduct() {
+    if (!form.name.trim() || !form.category.trim() || !form.unit.trim()) {
+      setMessage("Completa nombre, categoria y unidad de medida.");
       return;
     }
 
-    setProducts((current) => [
-      ...current,
-      {
-        ...form,
-        id: `prd-${Date.now()}`
-      }
-    ]);
-    setForm(emptyProduct);
+    try {
+      const createdProduct = await createProduct({
+        name: form.name.trim(),
+        category: form.category.trim(),
+        unit: form.unit.trim(),
+        active: form.active
+      });
+      setProducts((current) => [...current, createdProduct].sort((a, b) => a.name.localeCompare(b.name, "es")));
+      setForm(emptyProduct);
+      setMessage("Producto guardado correctamente.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo guardar el producto.");
+    }
   }
 
   function updateProduct(id: string, patch: Partial<Product>) {
     setProducts((current) => current.map((product) => (product.id === id ? { ...product, ...patch } : product)));
   }
 
-  function deleteProduct(id: string) {
-    setProducts((current) => current.filter((product) => product.id !== id));
+  async function saveProduct(product: Product) {
+    try {
+      setSavingId(product.id);
+      await updateProductRecord(product.id, {
+        name: product.name.trim(),
+        category: product.category.trim(),
+        unit: product.unit.trim(),
+        active: product.active
+      });
+      setMessage("Producto guardado correctamente.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo guardar el producto.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function deleteProduct(product: Product) {
+    const confirmed = window.confirm(`Eliminar el producto "${product.name}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteProductRecord(product.id);
+      setProducts((current) => current.filter((currentProduct) => currentProduct.id !== product.id));
+      setMessage("Producto eliminado correctamente.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo eliminar el producto.");
+    }
   }
 
   return (
@@ -45,7 +99,8 @@ export default function ProductsPage() {
       <PageHeader
         eyebrow="Administracion"
         title="Productos"
-        description="Mantencion del catalogo que se usa en los inventarios semanales."
+        description="Catalogo persistente para los inventarios semanales."
+        action={<span className="badge neutral">{message}</span>}
       />
 
       <section className="grid cols-2">
@@ -74,7 +129,7 @@ export default function ProductsPage() {
                 <option value="false">Inactivo</option>
               </select>
             </label>
-            <button className="btn" onClick={addProduct} type="button">
+            <button className="btn" disabled={loading} onClick={addProduct} type="button">
               <Plus size={18} />
               Crear producto
             </button>
@@ -93,7 +148,7 @@ export default function ProductsPage() {
         <div className="section-title">
           <div>
             <h2>Listado editable</h2>
-            <p className="muted">Los cambios quedan en memoria hasta conectar la base de datos.</p>
+            <p className="muted">Cada fila se guarda en Supabase al presionar el boton de guardar.</p>
           </div>
         </div>
         <div className="table-wrap">
@@ -139,16 +194,28 @@ export default function ProductsPage() {
                   </td>
                   <td>
                     <div className="actions">
-                      <button className="btn secondary" type="button">
+                      <button
+                        className="btn secondary"
+                        disabled={savingId === product.id}
+                        onClick={() => saveProduct(product)}
+                        type="button"
+                      >
                         <Save size={17} />
                       </button>
-                      <button className="btn ghost" onClick={() => deleteProduct(product.id)} type="button">
+                      <button className="btn ghost" onClick={() => deleteProduct(product)} type="button">
                         <Trash2 size={17} />
                       </button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {!loading && products.length === 0 ? (
+                <tr>
+                  <td className="muted" colSpan={5}>
+                    No hay productos registrados.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

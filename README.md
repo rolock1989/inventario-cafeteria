@@ -2,7 +2,7 @@
 
 Aplicacion web para que una cafeteria registre semanalmente su inventario fisico, lo compare con el stock informado por FUDO y conserve un historial de diferencias por producto, usuario y turno.
 
-La primera version usa datos de ejemplo y estado local para permitir probar el flujo completo. La estructura ya queda preparada para conectar Supabase Auth y PostgreSQL sin rehacer las pantallas.
+La app ya esta preparada para persistencia real con Supabase. Si las variables de entorno no estan configuradas, usa datos de ejemplo para que el proyecto siga abriendo localmente.
 
 ## Tecnologias usadas
 
@@ -10,7 +10,7 @@ La primera version usa datos de ejemplo y estado local para permitir probar el f
 - React 18
 - TypeScript
 - CSS global sin framework pesado
-- Supabase JS preparado para autenticacion y base de datos
+- Supabase JS para base de datos
 - XLSX para exportar inventarios a Excel
 - Lucide React para iconos
 
@@ -28,8 +28,8 @@ src/
       usuarios/
   components/
   lib/
+    repositories.ts
     inventory.ts
-    mock-data.ts
     supabase.ts
     types.ts
 supabase/
@@ -49,8 +49,6 @@ npm install
 
 ## Correr localmente
 
-Inicia el servidor de desarrollo:
-
 ```bash
 npm run dev
 ```
@@ -61,39 +59,41 @@ Luego abre:
 http://localhost:3000
 ```
 
-Usuarios demo disponibles en la pantalla de login:
-
-- `admin@inventariocafe.cl`
-- `trabajador@inventariocafe.cl`
+Si el puerto 3000 esta ocupado, Next.js usara el siguiente disponible.
 
 ## Variables de entorno
 
-El proyecto usa `.env.local` para desarrollo local:
+Crea o edita `.env.local`:
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_USE_MOCKS=true
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
 ```
 
-Cuando conectes Supabase, completa `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Mantén `NEXT_PUBLIC_USE_MOCKS=true` mientras trabajes con datos de ejemplo y cambia a `false` cuando implementes los repositorios reales.
+No uses la service role key en el frontend. La anon key es publica y debe trabajar junto con Row Level Security.
 
 ## Configurar Supabase
 
 1. Crea un proyecto en Supabase.
 2. Ve a SQL Editor.
 3. Ejecuta el archivo `supabase/schema.sql`.
-4. Activa Email/Password en Authentication.
-5. Crea usuarios desde Supabase Auth.
-6. Inserta un perfil por cada usuario en `public.profiles` usando el mismo `id` de `auth.users`.
-7. Carga productos iniciales en `public.products`.
+4. Copia `Project URL` y `anon public key` en `.env.local`.
+5. Reinicia `npm run dev`.
 
-Tablas preparadas:
+El SQL crea estas tablas:
 
-- `profiles`: usuarios, email, nombre, rol y turno.
+- `profiles`: usuarios operativos con nombre, email, rol, turno y estado activo/inactivo.
 - `products`: catalogo administrable de productos.
-- `inventories`: cabecera del inventario semanal.
+- `inventory_sessions`: cabecera del inventario enviado.
 - `inventory_items`: detalle por producto con diferencia calculada en base de datos.
+
+La version actual no guarda contrasenas. Los usuarios de la app se administran en `profiles` y la columna `auth_user_id` queda lista para enlazar Supabase Auth mas adelante.
+
+## Seguridad
+
+El archivo `supabase/schema.sql` incluye politicas demo para permitir persistencia usando la anon key mientras no exista Supabase Auth real. Antes de produccion, reemplaza esas politicas por reglas basadas en usuarios autenticados y roles admin/trabajador.
+
+No expongas claves privadas en Vercel ni en el navegador. Si mas adelante necesitas crear usuarios reales de Supabase Auth desde la app, hazlo mediante una API Route del servidor usando una variable privada, nunca desde componentes cliente.
 
 ## Desplegar en Vercel mas adelante
 
@@ -102,22 +102,21 @@ Tablas preparadas:
 3. Configura las variables de entorno:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_USE_MOCKS`
 4. Ejecuta el deploy.
 
-Vercel detecta Next.js automaticamente. Para produccion, usa `NEXT_PUBLIC_USE_MOCKS=false` cuando ya esten conectados los servicios reales.
+Vercel detecta Next.js automaticamente.
 
 ## Funcionalidades incluidas
 
-- Login demo con seleccion de usuario y rol.
+- Login operativo por seleccion de usuario activo.
 - Navegacion diferenciada para admin y trabajador.
-- Dashboard con resumen del ultimo inventario.
-- Registro de inventario con calculo automatico de diferencias.
-- Guardar borrador y enviar inventario en flujo local.
-- CRUD local de productos para administradores.
-- Historial con filtros por fecha y usuario.
+- Dashboard con resumen del ultimo inventario guardado.
+- Registro de inventario con productos reales desde Supabase.
+- Envio de inventario persistente en Supabase.
+- CRUD persistente de productos para administradores.
+- CRUD persistente de usuarios operativos para administradores.
+- Confirmacion antes de eliminar productos o usuarios.
+- Historial persistente con filtros por fecha y usuario.
 - Exportacion Excel de inventarios por rango de fechas.
-- Detalle de cada inventario enviado.
+- Detalle persistente de cada inventario enviado.
 - Busqueda y filtro por categoria en ingreso de inventario.
-- Pagina de usuarios preparada para roles reales.
-# inventario-cafeteria

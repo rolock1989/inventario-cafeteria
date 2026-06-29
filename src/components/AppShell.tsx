@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Coffee, History, Package, Users, ClipboardList } from "lucide-react";
 import { getCurrentUser } from "@/lib/inventory";
+import { loadCurrentUser } from "@/lib/repositories";
 import { useEffect, useState } from "react";
 import { AppUser } from "@/lib/types";
 
@@ -20,7 +21,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser>(() => getCurrentUser());
 
   useEffect(() => {
-    setUser(getCurrentUser());
+    loadCurrentUser()
+      .then(setUser)
+      .catch(() => setUser(getCurrentUser()));
   }, []);
 
   const visibleItems = navItems.filter((item) => item.roles.includes(user.role));

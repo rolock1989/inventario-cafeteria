@@ -1,12 +1,34 @@
+"use client";
+
 import { AlertTriangle, CalendarClock, PackageCheck, TrendingDown, TrendingUp } from "lucide-react";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { PageHeader } from "@/components/PageHeader";
-import { formatDateTime, getLatestInventory, summarizeInventory } from "@/lib/inventory";
+import { formatDateTime, summarizeInventory } from "@/lib/inventory";
+import { listInventories } from "@/lib/repositories";
+import { InventoryRecord } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
 
 export default function DashboardPage() {
-  const latestInventory = getLatestInventory();
+  const [inventories, setInventories] = useState<InventoryRecord[]>([]);
+  const [message, setMessage] = useState("Cargando resumen...");
+
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        const records = await listInventories();
+        setInventories(records);
+        setMessage(records.length > 0 ? "Resumen actualizado." : "Aun no hay inventarios enviados.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "No se pudo cargar el dashboard.");
+      }
+    }
+
+    loadDashboard();
+  }, []);
+
+  const latestInventory = inventories[0];
   const summary = summarizeInventory(latestInventory);
-  const differentItems = latestInventory?.items.filter((item) => item.difference !== 0) ?? [];
+  const differentItems = useMemo(() => latestInventory?.items.filter((item) => item.difference !== 0) ?? [], [latestInventory]);
 
   return (
     <>
@@ -14,6 +36,7 @@ export default function DashboardPage() {
         eyebrow="Dashboard"
         title="Resumen de inventario"
         description="Vista rapida del ultimo inventario fisico comparado con FUDO."
+        action={<span className="badge neutral">{message}</span>}
       />
 
       <section className="grid cols-4">
@@ -96,6 +119,13 @@ export default function DashboardPage() {
                     </td>
                   </tr>
                 ))}
+                {differentItems.length === 0 ? (
+                  <tr>
+                    <td className="muted" colSpan={3}>
+                      No hay diferencias para mostrar.
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>

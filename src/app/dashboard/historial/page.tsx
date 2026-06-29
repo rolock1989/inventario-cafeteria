@@ -4,37 +4,54 @@ import { Download, Eye } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
-import {
-  filterInventoriesByDateRange,
-  formatDateForInput,
-  formatDateTime,
-  getInventoryHistory,
-  summarizeInventory
-} from "@/lib/inventory";
+import { filterInventoriesByDateRange, formatDateForInput, formatDateTime, summarizeInventory } from "@/lib/inventory";
 import { downloadInventoriesExcel } from "@/lib/excel";
-import { useMemo, useState } from "react";
+import { listInventories } from "@/lib/repositories";
+import { InventoryRecord } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+
+function todayForInput() {
+  return formatDateForInput(new Date());
+}
 
 export default function HistoryPage() {
-  const inventories = getInventoryHistory();
-  const inventoryDates = inventories.map((inventory) => new Date(inventory.submittedAt ?? inventory.createdAt).getTime());
-  const initialStartDate = formatDateForInput(new Date(Math.min(...inventoryDates)));
-  const initialEndDate = formatDateForInput(new Date(Math.max(...inventoryDates)));
+  const [inventories, setInventories] = useState<InventoryRecord[]>([]);
   const [userFilter, setUserFilter] = useState("todos");
-  const [startDate, setStartDate] = useState(initialStartDate);
-  const [endDate, setEndDate] = useState(initialEndDate);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState(todayForInput);
+  const [message, setMessage] = useState("Cargando historial...");
+
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const records = await listInventories();
+        setInventories(records);
+
+        if (records.length > 0) {
+          const times = records.map((inventory) => new Date(inventory.submittedAt ?? inventory.createdAt).getTime());
+          setStartDate(formatDateForInput(new Date(Math.min(...times))));
+          setEndDate(formatDateForInput(new Date(Math.max(...times))));
+        }
+
+        setMessage(records.length > 0 ? "Historial cargado." : "Aun no hay inventarios enviados.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "No se pudo cargar el historial.");
+      }
+    }
+
+    loadHistory();
+  }, []);
+
   const userOptions = Array.from(new Set(inventories.map((inventory) => inventory.userName)));
 
-  const filteredInventories = useMemo(
-    () => {
-      const inventoriesInRange = filterInventoriesByDateRange(inventories, startDate, endDate);
+  const filteredInventories = useMemo(() => {
+    const inventoriesInRange = filterInventoriesByDateRange(inventories, startDate, endDate);
 
-      return inventoriesInRange.filter((inventory) => {
-        const matchesUser = userFilter === "todos" || inventory.userName === userFilter;
-        return matchesUser;
-      });
-    },
-    [endDate, inventories, startDate, userFilter]
-  );
+    return inventoriesInRange.filter((inventory) => {
+      const matchesUser = userFilter === "todos" || inventory.userName === userFilter;
+      return matchesUser;
+    });
+  }, [endDate, inventories, startDate, userFilter]);
 
   async function exportExcel() {
     const filenameStart = startDate || "inicio";
@@ -48,6 +65,7 @@ export default function HistoryPage() {
         eyebrow="Registros enviados"
         title="Historial"
         description="Consulta inventarios anteriores por fecha y responsable."
+        action={<span className="badge neutral">{message}</span>}
       />
 
       <section className="card" style={{ marginBottom: 18 }}>
@@ -119,6 +137,13 @@ export default function HistoryPage() {
                   </tr>
                 );
               })}
+              {filteredInventories.length === 0 ? (
+                <tr>
+                  <td className="muted" colSpan={7}>
+                    No hay inventarios para los filtros seleccionados.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

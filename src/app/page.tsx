@@ -2,16 +2,38 @@
 
 import { Coffee } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
-import { getUsers } from "@/lib/inventory";
+import { FormEvent, useEffect, useState } from "react";
+import { listUsers } from "@/lib/repositories";
+import { AppUser } from "@/lib/types";
 
 export default function LoginPage() {
   const router = useRouter();
-  const users = getUsers();
-  const [selectedUserId, setSelectedUserId] = useState(users[0].id);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [message, setMessage] = useState("Cargando usuarios...");
+
+  useEffect(() => {
+    async function loadLoginUsers() {
+      try {
+        const activeUsers = await listUsers({ activeOnly: true });
+        setUsers(activeUsers);
+        setSelectedUserId(activeUsers[0]?.id ?? "");
+        setMessage(activeUsers.length > 0 ? "Selecciona tu usuario." : "No hay usuarios activos.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "No se pudieron cargar los usuarios.");
+      }
+    }
+
+    loadLoginUsers();
+  }, []);
 
   function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedUserId) {
+      setMessage("Selecciona un usuario activo para ingresar.");
+      return;
+    }
+
     window.localStorage.setItem("inventario-cafe-user-id", selectedUserId);
     router.push("/dashboard");
   }
@@ -35,7 +57,7 @@ export default function LoginPage() {
         <form className="grid" onSubmit={signIn} style={{ marginTop: 24 }}>
           <label className="field">
             Usuario demo
-            <select onChange={(event) => setSelectedUserId(event.target.value)} value={selectedUserId}>
+            <select disabled={users.length === 0} onChange={(event) => setSelectedUserId(event.target.value)} value={selectedUserId}>
               {users.map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.name} - {user.role}
@@ -53,9 +75,9 @@ export default function LoginPage() {
           </label>
           <label className="field">
             Contrasena
-            <input defaultValue="inventario123" type="password" />
+            <input disabled placeholder="Supabase Auth pendiente" type="password" />
           </label>
-          <button className="btn" type="submit">
+          <button className="btn" disabled={users.length === 0} type="submit">
             Entrar al panel
           </button>
         </form>
@@ -63,9 +85,11 @@ export default function LoginPage() {
         <div className="helper-box" style={{ marginTop: 18 }}>
           <strong>Usuarios demo:</strong>
           <br />
-          Admin: admin@inventariocafe.cl
+          {message}
           <br />
-          Trabajador: trabajador@inventariocafe.cl
+          Admin inicial: admin@inventariocafe.cl
+          <br />
+          Trabajador inicial: trabajador@inventariocafe.cl
         </div>
       </section>
     </main>

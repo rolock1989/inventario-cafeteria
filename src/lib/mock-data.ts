@@ -6,21 +6,24 @@ export const mockUsers: AppUser[] = [
     name: "Camila Reyes",
     email: "admin@inventariocafe.cl",
     role: "admin",
-    shift: "Administracion"
+    shift: "Administracion",
+    active: true
   },
   {
     id: "usr-worker-1",
     name: "Mateo Silva",
     email: "trabajador@inventariocafe.cl",
     role: "trabajador",
-    shift: "Turno manana"
+    shift: "Turno manana",
+    active: true
   },
   {
     id: "usr-worker-2",
     name: "Antonia Perez",
     email: "antonia@inventariocafe.cl",
     role: "trabajador",
-    shift: "Turno tarde"
+    shift: "Turno tarde",
+    active: true
   }
 ];
 

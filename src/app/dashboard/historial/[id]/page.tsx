@@ -1,16 +1,36 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { PageHeader } from "@/components/PageHeader";
-import { formatDateTime, getInventoryById, summarizeInventory } from "@/lib/inventory";
+import { formatDateTime, summarizeInventory } from "@/lib/inventory";
+import { getInventoryRecord } from "@/lib/repositories";
+import { InventoryRecord } from "@/lib/types";
+import { useEffect, useState } from "react";
 
 export default function InventoryDetailPage({ params }: { params: { id: string } }) {
-  const inventory = getInventoryById(params.id);
+  const [inventory, setInventory] = useState<InventoryRecord | null>(null);
+  const [message, setMessage] = useState("Cargando detalle...");
+
+  useEffect(() => {
+    async function loadInventory() {
+      try {
+        const record = await getInventoryRecord(params.id);
+        setInventory(record ?? null);
+        setMessage(record ? "Detalle cargado." : "Inventario no encontrado.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "No se pudo cargar el detalle.");
+      }
+    }
+
+    loadInventory();
+  }, [params.id]);
 
   if (!inventory) {
     return (
       <>
-        <PageHeader title="Inventario no encontrado" description="El registro solicitado no existe en los datos demo." />
+        <PageHeader title="Detalle de inventario" description={message} />
         <Link className="btn secondary" href="/dashboard/historial">
           <ArrowLeft size={18} />
           Volver

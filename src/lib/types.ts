@@ -6,6 +6,7 @@ export type AppUser = {
   email: string;
   role: UserRole;
   shift?: string;
+  active: boolean;
 };
 
 export type Product = {

@@ -2,20 +2,33 @@
 
 import { Save, Send } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { createInventoryRows, getActiveProducts, getCurrentUser, getUniqueCategories } from "@/lib/inventory";
-import { InventoryItem } from "@/lib/types";
+import { createInventoryRows, getUniqueCategories } from "@/lib/inventory";
+import { loadCurrentUser, listProducts, submitInventoryRecord } from "@/lib/repositories";
+import { AppUser, InventoryItem } from "@/lib/types";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { useEffect, useMemo, useState } from "react";
 
 export default function InventoryPage() {
-  const currentUser = getCurrentUser();
-  const [rows, setRows] = useState<InventoryItem[]>(() => createInventoryRows(getActiveProducts()));
-  const [status, setStatus] = useState("Borrador sin guardar");
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [rows, setRows] = useState<InventoryItem[]>([]);
+  const [status, setStatus] = useState("Cargando inventario...");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todas");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setStatus(`Inventario de ${getCurrentUser().name}`);
+    async function loadInventoryData() {
+      try {
+        const [user, products] = await Promise.all([loadCurrentUser(), listProducts({ activeOnly: true })]);
+        setCurrentUser(user);
+        setRows(createInventoryRows(products));
+        setStatus(`Inventario de ${user.name}`);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "No se pudo cargar el inventario.");
+      }
+    }
+
+    loadInventoryData();
   }, []);
 
   const categoryOptions = useMemo(() => getUniqueCategories(rows), [rows]);
@@ -59,11 +72,38 @@ export default function InventoryPage() {
   }
 
   function saveDraft() {
-    setStatus(`Borrador guardado para ${currentUser.name}`);
+    setStatus("Borrador guardado en esta pantalla. El guardado persistente de borradores queda preparado para una siguiente etapa.");
   }
 
-  function submitInventory() {
-    setStatus(`Inventario enviado por ${currentUser.name}. En la siguiente etapa se guardara en Supabase.`);
+  async function submitInventory() {
+    if (!currentUser) {
+      setStatus("No hay usuario activo para enviar el inventario.");
+      return;
+    }
+
+    if (rows.length === 0) {
+      setStatus("No hay productos activos para enviar.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await submitInventoryRecord(currentUser, rows);
+      setRows((currentRows) =>
+        currentRows.map((row) => ({
+          ...row,
+          physicalStock: 0,
+          fudoStock: 0,
+          difference: 0,
+          comment: ""
+        }))
+      );
+      setStatus("Inventario enviado y guardado correctamente.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "No se pudo enviar el inventario.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -84,11 +124,11 @@ export default function InventoryPage() {
             </p>
           </div>
           <div className="actions">
-            <button className="btn secondary" onClick={saveDraft} type="button">
+            <button className="btn secondary" disabled={submitting} onClick={saveDraft} type="button">
               <Save size={18} />
               Guardar borrador
             </button>
-            <button className="btn" onClick={submitInventory} type="button">
+            <button className="btn" disabled={submitting || rows.length === 0} onClick={submitInventory} type="button">
               <Send size={18} />
               Enviar inventario
             </button>
