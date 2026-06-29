@@ -1,6 +1,7 @@
-import { mockInventories, mockProducts, mockUsers } from "@/lib/mock-data";
+import { mockInventories, mockProducts } from "@/lib/mock-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { AppUser, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
+import { assertActiveUser, getAuthSession } from "@/lib/auth";
 
 type ProductRow = {
   id: string;
@@ -15,7 +16,6 @@ type ProfileRow = {
   name: string;
   email: string;
   role: UserRole;
-  shift: string | null;
   active: boolean;
 };
 
@@ -79,9 +79,27 @@ function mapProfile(row: ProfileRow): AppUser {
     name: row.name,
     email: row.email,
     role: row.role,
-    shift: row.shift ?? "",
+    shift: "",
     active: row.active
   };
+}
+
+async function getAuthorizationHeaders() {
+  const session = await getAuthSession();
+
+  if (!session?.access_token) {
+    throw new Error("No hay sesion activa.");
+  }
+
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${session.access_token}`
+  };
+}
+
+async function parseApiError(response: Response) {
+  const data = await response.json().catch(() => null);
+  return data?.error ?? "Ocurrio un error al comunicarse con el servidor.";
 }
 
 function mapInventoryItem(row: InventoryItemRow): InventoryItem {
@@ -191,11 +209,9 @@ export async function deleteProductRecord(id: string) {
 }
 
 export async function listUsers(options: { activeOnly?: boolean } = {}) {
-  if (!usingSupabase()) {
-    return options.activeOnly ? mockUsers.filter((user) => user.active) : mockUsers;
-  }
+  requirePersistence();
 
-  let query = requireSupabase().from("profiles").select("id,name,email,role,shift,active").order("name");
+  let query = requireSupabase().from("profiles").select("id,name,email,role,active").order("name");
 
   if (options.activeOnly) {
     query = query.eq("active", true);
@@ -211,13 +227,11 @@ export async function listUsers(options: { activeOnly?: boolean } = {}) {
 }
 
 export async function getProfileById(id: string) {
-  if (!usingSupabase()) {
-    return mockUsers.find((user) => user.id === id) ?? mockUsers[0];
-  }
+  requirePersistence();
 
   const { data, error } = await requireSupabase()
     .from("profiles")
-    .select("id,name,email,role,shift,active")
+    .select("id,name,email,role,active")
     .eq("id", id)
     .single();
 
@@ -228,98 +242,67 @@ export async function getProfileById(id: string) {
   return mapProfile(data as ProfileRow);
 }
 
-export async function createUser(input: Omit<AppUser, "id">) {
+export async function createUser(input: Omit<AppUser, "id"> & { password: string }) {
   requirePersistence();
 
-  const { data, error } = await requireSupabase()
-    .from("profiles")
-    .insert({
-      name: input.name,
-      email: input.email,
-      role: input.role,
-      shift: input.shift ?? "",
-      active: input.active
-    })
-    .select("id,name,email,role,shift,active")
-    .single();
+  const response = await fetch("/api/users", {
+    method: "POST",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify(input)
+  });
 
-  if (error) {
-    throw new Error(`No se pudo crear el usuario: ${error.message}`);
+  if (!response.ok) {
+    throw new Error(`No se pudo crear el usuario: ${await parseApiError(response)}`);
   }
 
-  return mapProfile(data as ProfileRow);
+  const data = await response.json();
+  return mapProfile(data.user as ProfileRow);
 }
 
-export async function updateUserRecord(id: string, patch: Partial<Omit<AppUser, "id">>) {
+export async function updateUserRecord(id: string, patch: Partial<Omit<AppUser, "id">> & { password?: string }) {
   requirePersistence();
 
-  const { data, error } = await requireSupabase()
-    .from("profiles")
-    .update({
-      ...patch,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", id)
-    .select("id")
-    .single();
+  const response = await fetch(`/api/users/${id}`, {
+    method: "PATCH",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify(patch)
+  });
 
-  if (error) {
-    throw new Error(`No se pudo guardar el usuario: ${error.message}`);
+  if (!response.ok) {
+    throw new Error(`No se pudo guardar el usuario: ${await parseApiError(response)}`);
   }
 
-  if (!data) {
-    throw new Error("No se pudo guardar el usuario: Supabase no devolvio la fila actualizada. Revisa permisos RLS.");
-  }
+  const data = await response.json();
+  return mapProfile(data.user as ProfileRow);
 }
 
 export async function deleteUserRecord(id: string) {
   requirePersistence();
 
-  const { data, error } = await requireSupabase().from("profiles").delete().eq("id", id).select("id").single();
+  const response = await fetch(`/api/users/${id}`, {
+    method: "DELETE",
+    headers: await getAuthorizationHeaders()
+  });
 
-  if (error) {
-    throw new Error(`No se pudo eliminar el usuario: ${error.message}`);
-  }
-
-  if (!data) {
-    throw new Error("No se pudo eliminar el usuario: Supabase no devolvio la fila eliminada. Revisa permisos RLS.");
+  if (!response.ok) {
+    throw new Error(`No se pudo eliminar el usuario: ${await parseApiError(response)}`);
   }
 }
 
 export async function loadCurrentUser() {
-  if (!usingSupabase()) {
-    return mockUsers[0];
-  }
-
   if (typeof window === "undefined") {
     throw new Error("No se pudo cargar el usuario actual en el servidor.");
   }
 
-  const storedUserId = window.localStorage.getItem("inventario-cafe-user-id");
+  const session = await getAuthSession();
 
-  if (!storedUserId) {
-    const users = await listUsers({ activeOnly: true });
-    const user = users[0];
-
-    if (!user) {
-      throw new Error("No hay usuarios activos en Supabase.");
-    }
-
-    return user;
+  if (!session?.user) {
+    throw new Error("No hay sesion activa.");
   }
 
-  try {
-    return await getProfileById(storedUserId);
-  } catch {
-    const users = await listUsers({ activeOnly: true });
-    const user = users[0];
-
-    if (!user) {
-      throw new Error("No hay usuarios activos en Supabase.");
-    }
-
-    return user;
-  }
+  const user = await getProfileById(session.user.id);
+  assertActiveUser(user);
+  return user;
 }
 
 export async function listInventories() {

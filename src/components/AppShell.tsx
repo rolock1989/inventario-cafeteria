@@ -1,22 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { BarChart3, Coffee, History, Package, Users, ClipboardList } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { BarChart3, Coffee, History, Package, Users, ClipboardList, LogOut } from "lucide-react";
 import { loadCurrentUser } from "@/lib/repositories";
 import { useEffect, useState } from "react";
 import { AppUser } from "@/lib/types";
+import { signOut } from "@/lib/auth";
 
 const navItems = [
   { href: "/dashboard", label: "Inicio", icon: BarChart3, roles: ["admin"] },
   { href: "/dashboard/inventario", label: "Inventario", icon: ClipboardList, roles: ["admin", "trabajador"] },
   { href: "/dashboard/productos", label: "Productos", icon: Package, roles: ["admin"] },
-  { href: "/dashboard/historial", label: "Historial", icon: History, roles: ["admin"] },
+  { href: "/dashboard/historial", label: "Historial", icon: History, roles: ["admin", "trabajador"] },
   { href: "/dashboard/usuarios", label: "Usuarios", icon: Users, roles: ["admin"] }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [message, setMessage] = useState("");
   const [user, setUser] = useState<AppUser>({
     id: "",
     name: "Cargando usuario",
@@ -28,21 +32,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadCurrentUser()
-      .then(setUser)
+      .then((loadedUser) => {
+        setUser(loadedUser);
+        setAuthChecked(true);
+      })
       .catch((error) => {
         console.error("Error al cargar usuario actual", error);
-        setUser({
-          id: "",
-          name: "Error al cargar usuario",
-          email: "",
-          role: "trabajador",
-          shift: "Revisa Supabase",
-          active: false
-        });
+        router.replace("/");
       });
-  }, []);
+  }, [router]);
 
   const visibleItems = navItems.filter((item) => item.roles.includes(user.role));
+  const currentNavItem = [...navItems]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const hasPermission = !currentNavItem || currentNavItem.roles.includes(user.role);
+
+  useEffect(() => {
+    if (!authChecked || hasPermission) {
+      return;
+    }
+
+    setMessage("No tienes permisos para ver esta pagina.");
+  }, [authChecked, hasPermission]);
+
+  async function handleSignOut() {
+    try {
+      await signOut();
+      router.replace("/");
+    } catch (error) {
+      console.error("Error al cerrar sesion", error);
+      setMessage(error instanceof Error ? error.message : "No se pudo cerrar sesion.");
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -71,10 +93,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <br />
           {user.role === "admin" ? "Administrador" : "Trabajador"}
           <br />
-          {user.shift}
+          {user.email}
+          <button className="btn secondary logout-button" onClick={handleSignOut} type="button">
+            <LogOut size={17} />
+            Cerrar sesion
+          </button>
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <main className="main">
+        {!authChecked ? (
+          <section className="card">
+            <p className="muted">Cargando sesion...</p>
+          </section>
+        ) : !hasPermission ? (
+          <section className="card">
+            <h1>No tienes permisos</h1>
+            <p className="muted">{message}</p>
+            <Link className="btn" href="/dashboard">
+              Volver al inicio
+            </Link>
+          </section>
+        ) : (
+          children
+        )}
+      </main>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 Aplicacion web para que una cafeteria registre semanalmente su inventario fisico, lo compare con el stock informado por FUDO y conserve un historial de diferencias por producto, usuario y turno.
 
-La app ya esta preparada para persistencia real con Supabase. Si las variables de entorno no estan configuradas, usa datos de ejemplo para que el proyecto siga abriendo localmente.
+La app usa Supabase para base de datos y Supabase Auth para login real con email y contrasena.
 
 ## Tecnologias usadas
 
@@ -11,30 +11,9 @@ La app ya esta preparada para persistencia real con Supabase. Si las variables d
 - TypeScript
 - CSS global sin framework pesado
 - Supabase JS para base de datos
+- Supabase Auth para sesiones y contrasenas
 - XLSX para exportar inventarios a Excel
 - Lucide React para iconos
-
-## Estructura principal
-
-```txt
-src/
-  app/
-    page.tsx
-    dashboard/
-      page.tsx
-      inventario/
-      productos/
-      historial/
-      usuarios/
-  components/
-  lib/
-    repositories.ts
-    inventory.ts
-    supabase.ts
-    types.ts
-supabase/
-  schema.sql
-```
 
 ## Instalarlo en Visual Studio Code
 
@@ -68,32 +47,51 @@ Crea o edita `.env.local`:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
 ```
 
-No uses la service role key en el frontend. La anon key es publica y debe trabajar junto con Row Level Security.
+`SUPABASE_SERVICE_ROLE_KEY` es privada. No debe tener prefijo `NEXT_PUBLIC_` y no debe usarse en componentes cliente. La app la usa solo en API routes para crear usuarios en Supabase Auth y cambiar contrasenas.
 
 ## Configurar Supabase
 
 1. Crea un proyecto en Supabase.
-2. Ve a SQL Editor.
-3. Ejecuta el archivo `supabase/schema.sql`.
-4. Copia `Project URL` y `anon public key` en `.env.local`.
-5. Reinicia `npm run dev`.
+2. Activa Email/Password en Authentication.
+3. Ve a SQL Editor.
+4. Ejecuta `supabase/schema.sql`.
+5. Copia `Project URL`, `anon public key` y `service_role key` en `.env.local`.
+6. Crea el primer usuario admin en Supabase Auth.
+7. Inserta manualmente su perfil en `public.profiles` usando el mismo `id` del usuario Auth:
 
-El SQL crea estas tablas:
+```sql
+insert into public.profiles (id, name, email, role, active)
+values ('AUTH_USER_ID_AQUI', 'Admin', 'admin@tucafe.cl', 'admin', true);
+```
 
-- `profiles`: usuarios operativos con nombre, email, rol, turno y estado activo/inactivo.
+8. Reinicia `npm run dev`.
+9. Entra con el email y contrasena del admin.
+
+Si ya tenias una version anterior de la base, revisa `supabase/auth-migration.sql` antes de ejecutar el esquema definitivo.
+
+## Tablas
+
+- `profiles`: perfil de app conectado con `auth.users.id`, con nombre, email, rol y estado activo/inactivo.
 - `products`: catalogo administrable de productos.
 - `inventory_sessions`: cabecera del inventario enviado.
 - `inventory_items`: detalle por producto con diferencia calculada en base de datos.
 
-La version actual no guarda contrasenas. Los usuarios de la app se administran en `profiles` y la columna `auth_user_id` queda lista para enlazar Supabase Auth mas adelante.
+La app no guarda contrasenas en `profiles`. Las contrasenas quedan administradas por Supabase Auth.
 
 ## Seguridad
 
-El archivo `supabase/schema.sql` incluye politicas demo para permitir persistencia usando la anon key mientras no exista Supabase Auth real. Antes de produccion, reemplaza esas politicas por reglas basadas en usuarios autenticados y roles admin/trabajador.
+`supabase/schema.sql` incluye politicas RLS basadas en Supabase Auth:
 
-No expongas claves privadas en Vercel ni en el navegador. Si mas adelante necesitas crear usuarios reales de Supabase Auth desde la app, hazlo mediante una API Route del servidor usando una variable privada, nunca desde componentes cliente.
+- Admin puede administrar productos y usuarios.
+- Trabajador puede ingresar inventarios.
+- Trabajador puede ver sus inventarios.
+- Admin puede ver todo el historial.
+- Usuarios inactivos no pueden operar desde la app.
+
+No expongas claves privadas en Vercel ni en el navegador. Configura `SUPABASE_SERVICE_ROLE_KEY` como variable privada del proyecto.
 
 ## Desplegar en Vercel mas adelante
 
@@ -102,19 +100,24 @@ No expongas claves privadas en Vercel ni en el navegador. Si mas adelante necesi
 3. Configura las variables de entorno:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
 4. Ejecuta el deploy.
 
 Vercel detecta Next.js automaticamente.
 
 ## Funcionalidades incluidas
 
-- Login operativo por seleccion de usuario activo.
+- Login real con email y contrasena usando Supabase Auth.
+- Sesion persistente al recargar.
+- Cerrar sesion.
 - Navegacion diferenciada para admin y trabajador.
+- Bloqueo de paginas admin para trabajadores.
 - Dashboard con resumen del ultimo inventario guardado.
 - Registro de inventario con productos reales desde Supabase.
 - Envio de inventario persistente en Supabase.
 - CRUD persistente de productos para administradores.
-- CRUD persistente de usuarios operativos para administradores.
+- CRUD de usuarios reales de Supabase Auth para administradores.
+- Cambio opcional de contrasena sin mostrar contrasenas actuales.
 - Confirmacion antes de eliminar productos o usuarios.
 - Historial persistente con filtros por fecha y usuario.
 - Exportacion Excel de inventarios por rango de fechas.

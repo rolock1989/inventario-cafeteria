@@ -3,40 +3,52 @@
 import { Coffee } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { listUsers } from "@/lib/repositories";
-import { AppUser } from "@/lib/types";
+import { signInWithEmail, getAuthSession } from "@/lib/auth";
+import { loadCurrentUser } from "@/lib/repositories";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [users, setUsers] = useState<AppUser[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [message, setMessage] = useState("Cargando usuarios...");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("Ingresa con tu email y contrasena.");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    async function loadLoginUsers() {
+    async function redirectIfSessionExists() {
       try {
-        const activeUsers = await listUsers({ activeOnly: true });
-        setUsers(activeUsers);
-        setSelectedUserId(activeUsers[0]?.id ?? "");
-        setMessage(activeUsers.length > 0 ? "Selecciona tu usuario." : "No hay usuarios activos.");
+        const session = await getAuthSession();
+
+        if (session) {
+          await loadCurrentUser();
+          router.replace("/dashboard");
+        }
       } catch (error) {
-        console.error("Error al cargar usuarios para login", error);
-        setMessage(error instanceof Error ? error.message : "No se pudieron cargar los usuarios.");
+        console.error("No se pudo recuperar la sesion", error);
       }
     }
 
-    loadLoginUsers();
-  }, []);
+    redirectIfSessionExists();
+  }, [router]);
 
-  function signIn(event: FormEvent<HTMLFormElement>) {
+  async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedUserId) {
-      setMessage("Selecciona un usuario activo para ingresar.");
+
+    if (!email.trim() || !password) {
+      setMessage("Ingresa email y contrasena.");
       return;
     }
 
-    window.localStorage.setItem("inventario-cafe-user-id", selectedUserId);
-    router.push("/dashboard");
+    try {
+      setLoading(true);
+      await signInWithEmail(email.trim(), password);
+      const user = await loadCurrentUser();
+      router.push(user.role === "admin" ? "/dashboard" : "/dashboard/inventario");
+    } catch (error) {
+      console.error("Error al iniciar sesion", error);
+      setMessage(error instanceof Error ? error.message : "No se pudo iniciar sesion.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -51,46 +63,34 @@ export default function LoginPage() {
 
         <p className="eyebrow">Acceso interno</p>
         <h1>Control semanal de stock</h1>
-        <p className="muted">
-          Ingresa con un usuario de prueba para revisar el flujo de trabajadores y administradores.
-        </p>
+        <p className="muted">Ingresa con tu email y contrasena de Supabase Auth.</p>
 
         <form className="grid" onSubmit={signIn} style={{ marginTop: 24 }}>
           <label className="field">
-            Usuario demo
-            <select disabled={users.length === 0} onChange={(event) => setSelectedUserId(event.target.value)} value={selectedUserId}>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name} - {user.role}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
             Email
             <input
-              readOnly
+              autoComplete="email"
+              onChange={(event) => setEmail(event.target.value)}
               type="email"
-              value={users.find((user) => user.id === selectedUserId)?.email ?? ""}
+              value={email}
             />
           </label>
           <label className="field">
             Contrasena
-            <input disabled placeholder="Supabase Auth pendiente" type="password" />
+            <input
+              autoComplete="current-password"
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              value={password}
+            />
           </label>
-          <button className="btn" disabled={users.length === 0} type="submit">
+          <button className="btn" disabled={loading} type="submit">
             Entrar al panel
           </button>
         </form>
 
         <div className="helper-box" style={{ marginTop: 18 }}>
-          <strong>Usuarios demo:</strong>
-          <br />
           {message}
-          <br />
-          Admin inicial: admin@inventariocafe.cl
-          <br />
-          Trabajador inicial: trabajador@inventariocafe.cl
         </div>
       </section>
     </main>

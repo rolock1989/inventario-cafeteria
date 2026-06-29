@@ -1,46 +1,4 @@
-import { mockInventories, mockProducts, mockUsers } from "@/lib/mock-data";
 import { InventoryItem, InventoryRecord, InventorySummary, Product } from "@/lib/types";
-
-export function getCurrentUser() {
-  if (typeof window !== "undefined") {
-    const storedUserId = window.localStorage.getItem("inventario-cafe-user-id");
-    const storedUser = mockUsers.find((user) => user.id === storedUserId);
-
-    if (storedUser) {
-      return storedUser;
-    }
-  }
-
-  return mockUsers[0];
-}
-
-export function getUsers() {
-  return mockUsers;
-}
-
-export function getProducts() {
-  return mockProducts;
-}
-
-export function getActiveProducts() {
-  return mockProducts.filter((product) => product.active);
-}
-
-export function getInventoryHistory() {
-  return [...mockInventories].sort((a, b) => {
-    const aDate = a.submittedAt ?? a.createdAt;
-    const bDate = b.submittedAt ?? b.createdAt;
-    return new Date(bDate).getTime() - new Date(aDate).getTime();
-  });
-}
-
-export function getLatestInventory() {
-  return getInventoryHistory()[0];
-}
-
-export function getInventoryById(id: string) {
-  return mockInventories.find((inventory) => inventory.id === id);
-}
 
 export function getInventoryDate(inventory: InventoryRecord) {
   return new Date(inventory.submittedAt ?? inventory.createdAt);

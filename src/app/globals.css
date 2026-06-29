@@ -109,6 +109,11 @@ button {
   font-size: 0.9rem;
 }
 
+.logout-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
 .main {
   min-width: 0;
   padding: 28px;

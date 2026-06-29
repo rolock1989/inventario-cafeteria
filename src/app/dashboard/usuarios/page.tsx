@@ -6,17 +6,24 @@ import { createUser, deleteUserRecord, listUsers, updateUserRecord } from "@/lib
 import { AppUser, UserRole } from "@/lib/types";
 import { useEffect, useState } from "react";
 
-const emptyUser: Omit<AppUser, "id"> = {
+type UserForm = Omit<AppUser, "id" | "shift"> & {
+  password: string;
+};
+
+type PasswordDrafts = Record<string, string>;
+
+const emptyUser: UserForm = {
   name: "",
   email: "",
+  password: "",
   role: "trabajador",
-  shift: "",
   active: true
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [form, setForm] = useState(emptyUser);
+  const [passwordDrafts, setPasswordDrafts] = useState<PasswordDrafts>({});
   const [message, setMessage] = useState("Cargando usuarios...");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -39,8 +46,8 @@ export default function UsersPage() {
   }, []);
 
   async function addUser() {
-    if (!form.name.trim() || !form.email.trim()) {
-      setMessage("Completa nombre y email.");
+    if (!form.name.trim() || !form.email.trim() || !form.password) {
+      setMessage("Completa nombre, email y contrasena.");
       return;
     }
 
@@ -48,13 +55,13 @@ export default function UsersPage() {
       const createdUser = await createUser({
         name: form.name.trim(),
         email: form.email.trim(),
+        password: form.password,
         role: form.role,
-        shift: form.shift?.trim() ?? "",
         active: form.active
       });
       setUsers((current) => [...current, createdUser].sort((a, b) => a.name.localeCompare(b.name, "es")));
       setForm(emptyUser);
-      setMessage("Usuario guardado correctamente.");
+      setMessage("Usuario creado correctamente.");
     } catch (error) {
       console.error("Error al crear usuario", error);
       setMessage(error instanceof Error ? error.message : "No se pudo guardar el usuario.");
@@ -68,13 +75,15 @@ export default function UsersPage() {
   async function saveUser(user: AppUser) {
     try {
       setSavingId(user.id);
-      await updateUserRecord(user.id, {
+      const savedUser = await updateUserRecord(user.id, {
         name: user.name.trim(),
         email: user.email.trim(),
         role: user.role,
-        shift: user.shift?.trim() ?? "",
-        active: user.active
+        active: user.active,
+        password: passwordDrafts[user.id]?.trim() || undefined
       });
+      setUsers((current) => current.map((currentUser) => (currentUser.id === user.id ? savedUser : currentUser)));
+      setPasswordDrafts((current) => ({ ...current, [user.id]: "" }));
       setMessage("Usuario guardado correctamente.");
     } catch (error) {
       console.error("Error al guardar usuario", error);
@@ -106,7 +115,7 @@ export default function UsersPage() {
       <PageHeader
         eyebrow="Administracion"
         title="Usuarios"
-        description="Usuarios operativos persistentes, listos para enlazar con Supabase Auth."
+        description="Usuarios reales de Supabase Auth conectados a perfiles de la app."
         action={<span className="badge neutral">{message}</span>}
       />
 
@@ -120,6 +129,15 @@ export default function UsersPage() {
           <label className="field">
             Email
             <input onChange={(event) => setForm({ ...form, email: event.target.value })} type="email" value={form.email} />
+          </label>
+          <label className="field">
+            Contrasena
+            <input
+              autoComplete="new-password"
+              onChange={(event) => setForm({ ...form, password: event.target.value })}
+              type="password"
+              value={form.password}
+            />
           </label>
           <label className="field">
             Rol
@@ -154,6 +172,7 @@ export default function UsersPage() {
                 <th>Email</th>
                 <th>Rol</th>
                 <th>Estado</th>
+                <th>Cambiar contrasena</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -189,6 +208,15 @@ export default function UsersPage() {
                     </select>
                   </td>
                   <td>
+                    <input
+                      autoComplete="new-password"
+                      onChange={(event) => setPasswordDrafts((current) => ({ ...current, [user.id]: event.target.value }))}
+                      placeholder="Opcional"
+                      type="password"
+                      value={passwordDrafts[user.id] ?? ""}
+                    />
+                  </td>
+                  <td>
                     <div className="actions">
                       <button
                         className="btn secondary"
@@ -207,7 +235,7 @@ export default function UsersPage() {
               ))}
               {!loading && users.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={5}>
+                  <td className="muted" colSpan={6}>
                     No hay usuarios registrados.
                   </td>
                 </tr>
