@@ -120,3 +120,4 @@ Vercel detecta Next.js automaticamente. Para produccion, usa `NEXT_PUBLIC_USE_MO
 - Detalle de cada inventario enviado.
 - Busqueda y filtro por categoria en ingreso de inventario.
 - Pagina de usuarios preparada para roles reales.
+# inventario-cafeteria
