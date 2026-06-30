@@ -164,7 +164,87 @@ export default function UsersPage() {
       </section>
 
       <section className="card">
-        <div className="table-wrap">
+        <div className="mobile-card-list">
+          {users.map((user) => (
+            <article className="mobile-record-card" key={user.id}>
+              <div className="mobile-record-header">
+                <div>
+                  <h3>{user.name || "Usuario sin nombre"}</h3>
+                  <p className="muted">{user.email}</p>
+                </div>
+                <span className={`badge ${user.active ? "positive" : "neutral"}`}>
+                  {user.active ? "Activo" : "Inactivo"}
+                </span>
+              </div>
+              <div className="form-grid">
+                <label className="field">
+                  Nombre
+                  <input onChange={(event) => updateUser(user.id, { name: event.target.value })} value={user.name} />
+                </label>
+                <label className="field">
+                  Email
+                  <input
+                    onChange={(event) => updateUser(user.id, { email: event.target.value })}
+                    type="email"
+                    value={user.email}
+                  />
+                </label>
+                <label className="field">
+                  Rol
+                  <select
+                    onChange={(event) => updateUser(user.id, { role: event.target.value as UserRole })}
+                    value={user.role}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="trabajador">Trabajador</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Estado
+                  <select
+                    onChange={(event) => updateUser(user.id, { active: event.target.value === "true" })}
+                    value={String(user.active)}
+                  >
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </label>
+                <label className="field full">
+                  Cambiar contrasena
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) => setPasswordDrafts((current) => ({ ...current, [user.id]: event.target.value }))}
+                    placeholder="Opcional"
+                    type="password"
+                    value={passwordDrafts[user.id] ?? ""}
+                  />
+                </label>
+              </div>
+              <div className="actions mobile-actions">
+                <button
+                  className="btn secondary"
+                  disabled={savingId === user.id}
+                  onClick={() => saveUser(user)}
+                  type="button"
+                >
+                  <Save size={17} />
+                  Guardar
+                </button>
+                <button className="btn ghost" onClick={() => deleteUser(user)} type="button">
+                  <Trash2 size={17} />
+                  Eliminar
+                </button>
+              </div>
+            </article>
+          ))}
+          {!loading && users.length === 0 ? (
+            <article className="mobile-record-card">
+              <p className="muted">No hay usuarios registrados.</p>
+            </article>
+          ) : null}
+        </div>
+
+        <div className="table-wrap desktop-table">
           <table>
             <thead>
               <tr>

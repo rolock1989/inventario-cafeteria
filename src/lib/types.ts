@@ -13,8 +13,16 @@ export type Product = {
   id: string;
   name: string;
   category: string;
+  categoryId?: string | null;
   unit: string;
   active: boolean;
+};
+
+export type Category = {
+  id: string;
+  name: string;
+  active: boolean;
+  createdAt?: string;
 };
 
 export type InventoryStatus = "draft" | "submitted";
@@ -24,6 +32,7 @@ export type InventoryItem = {
   productId: string;
   productName: string;
   category: string;
+  categoryId?: string | null;
   unit: string;
   physicalStock: number;
   fudoStock: number;

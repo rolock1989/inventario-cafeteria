@@ -28,6 +28,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
 }
 
 a {
@@ -61,6 +62,13 @@ button {
   gap: 28px;
 }
 
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -89,9 +97,14 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
   padding: 11px 12px;
   border-radius: 8px;
   color: #efe3d3;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  width: 100%;
 }
 
 .nav-item.active,
@@ -112,6 +125,22 @@ button {
 .logout-button {
   width: 100%;
   margin-top: 12px;
+}
+
+.mobile-menu-button,
+.mobile-logout,
+.mobile-card-list {
+  display: none;
+}
+
+.mobile-menu-button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff8ee;
+  place-items: center;
 }
 
 .main {
@@ -173,6 +202,48 @@ h2 {
   border-radius: 8px;
   box-shadow: var(--shadow);
   padding: 18px;
+}
+
+.mobile-record-card {
+  background: #fffdf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.mobile-record-card.compact {
+  padding: 14px;
+}
+
+.mobile-record-card h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+.mobile-record-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.mobile-meta-grid {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.75fr) minmax(0, 1.25fr);
+  gap: 8px 12px;
+  align-items: start;
+  overflow-wrap: anywhere;
+}
+
+.mobile-meta-grid span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.mobile-meta-grid strong {
+  color: var(--ink);
 }
 
 .metric {
@@ -273,7 +344,7 @@ tr:last-child td {
 
 .btn {
   border: 0;
-  min-height: 42px;
+  min-height: 44px;
   border-radius: 8px;
   padding: 0 14px;
   display: inline-flex;
@@ -326,7 +397,7 @@ input,
 select,
 textarea {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   border-radius: 8px;
   border: 1px solid var(--line);
   background: #fffdf9;
@@ -381,25 +452,170 @@ textarea {
     top: 0;
     z-index: 10;
     padding: 14px;
+    gap: 12px;
+  }
+
+  .mobile-menu-button {
+    display: grid;
+    flex: 0 0 auto;
   }
 
   .nav-list {
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
-    overflow-x: auto;
+    display: none;
+    gap: 8px;
+  }
+
+  .nav-list.open {
+    display: grid;
+  }
+
+  .mobile-logout {
+    display: flex;
+    color: #fff8ee;
   }
 
   .sidebar-footer {
-    display: none;
+    display: block;
+    margin-top: 0;
   }
 
   .main {
     padding: 20px;
   }
 
+  .topbar,
+  .section-title {
+    display: grid;
+    gap: 12px;
+  }
+
   .grid.cols-4,
   .grid.cols-2,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .desktop-table {
+    display: none;
+  }
+
+  .mobile-card-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  table {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 16px;
+  }
+
+  .brand {
+    min-width: 0;
+    font-size: 1.05rem;
+  }
+
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .sidebar {
+    padding: 12px;
+  }
+
+  .sidebar-footer {
+    font-size: 0.85rem;
+    padding: 12px;
+  }
+
+  .sidebar-footer .logout-button {
+    display: flex;
+  }
+
+  .main {
+    padding: 14px;
+  }
+
+  h1 {
+    font-size: 1.55rem;
+    line-height: 1.16;
+  }
+
+  h2 {
+    font-size: 1.12rem;
+  }
+
+  .topbar {
+    margin-bottom: 16px;
+  }
+
+  .topbar .badge {
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 36px;
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .metric {
+    min-height: 92px;
+  }
+
+  .metric-value {
+    font-size: 1.7rem;
+  }
+
+  .actions,
+  .mobile-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .btn,
+  input,
+  select,
+  textarea {
+    min-height: 48px;
+    font-size: 1rem;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 0 12px;
+  }
+
+  .inventory-mobile-list {
+    gap: 14px;
+  }
+
+  .mobile-inventory-fields input {
+    min-height: 52px;
+    font-size: 1.05rem;
+  }
+
+  .mobile-full-button {
+    margin-top: 14px;
+  }
+
+  .login-page {
+    padding: 14px;
+  }
+
+  .login-card {
+    padding: 22px 18px;
+  }
+
+  .login-card h1 {
+    font-size: 1.7rem;
   }
 }

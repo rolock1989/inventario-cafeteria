@@ -72,9 +72,12 @@ values ('AUTH_USER_ID_AQUI', 'Admin', 'admin@tucafe.cl', 'admin', true);
 
 Si ya tenias una version anterior de la base, revisa `supabase/auth-migration.sql` antes de ejecutar el esquema definitivo.
 
+Para agregar categorias a una base existente, ejecuta `supabase/categories-migration.sql`.
+
 ## Tablas
 
 - `profiles`: perfil de app conectado con `auth.users.id`, con nombre, email, rol y estado activo/inactivo.
+- `categories`: categorias reutilizables para productos.
 - `products`: catalogo administrable de productos.
 - `inventory_sessions`: cabecera del inventario enviado.
 - `inventory_items`: detalle por producto con diferencia calculada en base de datos.
@@ -86,6 +89,7 @@ La app no guarda contrasenas en `profiles`. Las contrasenas quedan administradas
 `supabase/schema.sql` incluye politicas RLS basadas en Supabase Auth:
 
 - Admin puede administrar productos y usuarios.
+- Admin puede administrar categorias.
 - Trabajador puede ingresar inventarios.
 - Trabajador puede ver sus inventarios.
 - Admin puede ver todo el historial.
@@ -116,6 +120,7 @@ Vercel detecta Next.js automaticamente.
 - Registro de inventario con productos reales desde Supabase.
 - Envio de inventario persistente en Supabase.
 - CRUD persistente de productos para administradores.
+- Administracion de categorias reutilizables para administradores.
 - CRUD de usuarios reales de Supabase Auth para administradores.
 - Cambio opcional de contrasena sin mostrar contrasenas actuales.
 - Confirmacion antes de eliminar productos o usuarios.

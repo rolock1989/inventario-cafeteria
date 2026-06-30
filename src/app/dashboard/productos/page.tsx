@@ -2,19 +2,21 @@
 
 import { Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { createProduct, deleteProductRecord, listProducts, updateProductRecord } from "@/lib/repositories";
-import { Product } from "@/lib/types";
+import { createProduct, deleteProductRecord, listCategories, listProducts, updateProductRecord } from "@/lib/repositories";
+import { Category, Product } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 const emptyProduct: Omit<Product, "id"> = {
   name: "",
   category: "",
+  categoryId: "",
   unit: "",
   active: true
 };
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(emptyProduct);
   const [message, setMessage] = useState("Cargando productos...");
   const [loading, setLoading] = useState(true);
@@ -23,7 +25,9 @@ export default function ProductsPage() {
   async function loadProducts() {
     try {
       setLoading(true);
-      setProducts(await listProducts());
+      const [loadedProducts, loadedCategories] = await Promise.all([listProducts(), listCategories({ activeOnly: true })]);
+      setProducts(loadedProducts);
+      setCategories(loadedCategories);
       setMessage("Productos cargados.");
     } catch (error) {
       console.error("Error al cargar productos", error);
@@ -38,15 +42,17 @@ export default function ProductsPage() {
   }, []);
 
   async function addProduct() {
-    if (!form.name.trim() || !form.category.trim() || !form.unit.trim()) {
+    if (!form.name.trim() || !form.categoryId || !form.unit.trim()) {
       setMessage("Completa nombre, categoria y unidad de medida.");
       return;
     }
+    const selectedCategory = categories.find((category) => category.id === form.categoryId);
 
     try {
       const createdProduct = await createProduct({
         name: form.name.trim(),
-        category: form.category.trim(),
+        category: selectedCategory?.name ?? "Sin categoria",
+        categoryId: form.categoryId,
         unit: form.unit.trim(),
         active: form.active
       });
@@ -68,7 +74,8 @@ export default function ProductsPage() {
       setSavingId(product.id);
       await updateProductRecord(product.id, {
         name: product.name.trim(),
-        category: product.category.trim(),
+        category: product.category,
+        categoryId: product.categoryId,
         unit: product.unit.trim(),
         active: product.active
       });
@@ -117,7 +124,20 @@ export default function ProductsPage() {
             </label>
             <label className="field">
               Categoria
-              <input onChange={(event) => setForm({ ...form, category: event.target.value })} value={form.category} />
+              <select
+                onChange={(event) => {
+                  const selectedCategory = categories.find((category) => category.id === event.target.value);
+                  setForm({ ...form, categoryId: event.target.value, category: selectedCategory?.name ?? "" });
+                }}
+                value={form.categoryId ?? ""}
+              >
+                <option value="">Seleccionar categoria</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field">
               Unidad de medida
@@ -155,7 +175,89 @@ export default function ProductsPage() {
             <p className="muted">Cada fila se guarda en Supabase al presionar el boton de guardar.</p>
           </div>
         </div>
-        <div className="table-wrap">
+        <div className="mobile-card-list">
+          {products.map((product) => (
+            <article className="mobile-record-card" key={product.id}>
+              <div className="mobile-record-header">
+                <div>
+                  <h3>{product.name || "Producto sin nombre"}</h3>
+                  <p className="muted">{product.category || "Sin categoria"}</p>
+                </div>
+                <span className={`badge ${product.active ? "positive" : "neutral"}`}>
+                  {product.active ? "Activo" : "Inactivo"}
+                </span>
+              </div>
+              <div className="form-grid">
+                <label className="field">
+                  Nombre
+                  <input
+                    onChange={(event) => updateProduct(product.id, { name: event.target.value })}
+                    value={product.name}
+                  />
+                </label>
+                <label className="field">
+                  Categoria
+                  <select
+                    onChange={(event) => {
+                      const selectedCategory = categories.find((category) => category.id === event.target.value);
+                      updateProduct(product.id, {
+                        categoryId: event.target.value || null,
+                        category: selectedCategory?.name ?? "Sin categoria"
+                      });
+                    }}
+                    value={product.categoryId ?? ""}
+                  >
+                    <option value="">Sin categoria</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  Unidad
+                  <input
+                    onChange={(event) => updateProduct(product.id, { unit: event.target.value })}
+                    value={product.unit}
+                  />
+                </label>
+                <label className="field">
+                  Estado
+                  <select
+                    onChange={(event) => updateProduct(product.id, { active: event.target.value === "true" })}
+                    value={String(product.active)}
+                  >
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </label>
+              </div>
+              <div className="actions mobile-actions">
+                <button
+                  className="btn secondary"
+                  disabled={savingId === product.id}
+                  onClick={() => saveProduct(product)}
+                  type="button"
+                >
+                  <Save size={17} />
+                  Guardar
+                </button>
+                <button className="btn ghost" onClick={() => deleteProduct(product)} type="button">
+                  <Trash2 size={17} />
+                  Eliminar
+                </button>
+              </div>
+            </article>
+          ))}
+          {!loading && products.length === 0 ? (
+            <article className="mobile-record-card">
+              <p className="muted">No hay productos registrados.</p>
+            </article>
+          ) : null}
+        </div>
+
+        <div className="table-wrap desktop-table">
           <table>
             <thead>
               <tr>
@@ -176,10 +278,23 @@ export default function ProductsPage() {
                     />
                   </td>
                   <td>
-                    <input
-                      onChange={(event) => updateProduct(product.id, { category: event.target.value })}
-                      value={product.category}
-                    />
+                    <select
+                      onChange={(event) => {
+                        const selectedCategory = categories.find((category) => category.id === event.target.value);
+                        updateProduct(product.id, {
+                          categoryId: event.target.value || null,
+                          category: selectedCategory?.name ?? "Sin categoria"
+                        });
+                      }}
+                      value={product.categoryId ?? ""}
+                    >
+                      <option value="">Sin categoria</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <input

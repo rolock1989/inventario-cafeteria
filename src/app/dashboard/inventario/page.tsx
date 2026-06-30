@@ -2,15 +2,16 @@
 
 import { Save, Send } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { createInventoryRows, getUniqueCategories } from "@/lib/inventory";
-import { loadCurrentUser, listProducts, submitInventoryRecord } from "@/lib/repositories";
-import { AppUser, InventoryItem } from "@/lib/types";
+import { createInventoryRows } from "@/lib/inventory";
+import { loadCurrentUser, listCategories, listProducts, submitInventoryRecord } from "@/lib/repositories";
+import { AppUser, Category, InventoryItem } from "@/lib/types";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { useEffect, useMemo, useState } from "react";
 
 export default function InventoryPage() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [rows, setRows] = useState<InventoryItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [status, setStatus] = useState("Cargando inventario...");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todas");
@@ -19,9 +20,14 @@ export default function InventoryPage() {
   useEffect(() => {
     async function loadInventoryData() {
       try {
-        const [user, products] = await Promise.all([loadCurrentUser(), listProducts({ activeOnly: true })]);
+        const [user, products, loadedCategories] = await Promise.all([
+          loadCurrentUser(),
+          listProducts({ activeOnly: true }),
+          listCategories({ activeOnly: true })
+        ]);
         setCurrentUser(user);
         setRows(createInventoryRows(products));
+        setCategories(loadedCategories);
         setStatus(`Inventario de ${user.name}`);
       } catch (error) {
         console.error("Error al cargar inventario", error);
@@ -32,13 +38,15 @@ export default function InventoryPage() {
     loadInventoryData();
   }, []);
 
-  const categoryOptions = useMemo(() => getUniqueCategories(rows), [rows]);
   const visibleRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
     return rows.filter((row) => {
       const matchesName = !normalizedSearch || row.productName.toLowerCase().includes(normalizedSearch);
-      const matchesCategory = categoryFilter === "todas" || row.category === categoryFilter;
+      const matchesCategory =
+        categoryFilter === "todas" ||
+        (categoryFilter === "sin-categoria" && !row.categoryId) ||
+        row.categoryId === categoryFilter;
 
       return matchesName && matchesCategory;
     });
@@ -151,16 +159,68 @@ export default function InventoryPage() {
             Categoria
             <select onChange={(event) => setCategoryFilter(event.target.value)} value={categoryFilter}>
               <option value="todas">Todas las categorias</option>
-              {categoryOptions.map((category) => (
-                <option key={category} value={category}>
-                  {category}
+              <option value="sin-categoria">Sin categoria</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
                 </option>
               ))}
             </select>
           </label>
         </div>
 
-        <div className="table-wrap">
+        <div className="mobile-card-list inventory-mobile-list">
+          {visibleRows.map((row) => (
+            <article className="mobile-record-card" key={row.id}>
+              <div className="mobile-record-header">
+                <div>
+                  <h3>{row.productName}</h3>
+                  <p className="muted">{row.category}</p>
+                </div>
+                <DifferenceBadge value={row.difference} />
+              </div>
+              <div className="mobile-meta-grid">
+                <span>Unidad</span>
+                <strong>{row.unit}</strong>
+              </div>
+              <div className="form-grid mobile-inventory-fields">
+                <label className="field">
+                  Stock FUDO
+                  <input
+                    min="0"
+                    onChange={(event) => updateRow(row.id, "fudoStock", event.target.value)}
+                    type="number"
+                    value={row.fudoStock}
+                  />
+                </label>
+                <label className="field">
+                  Stock fisico
+                  <input
+                    min="0"
+                    onChange={(event) => updateRow(row.id, "physicalStock", event.target.value)}
+                    type="number"
+                    value={row.physicalStock}
+                  />
+                </label>
+                <label className="field full">
+                  Comentario
+                  <input
+                    onChange={(event) => updateRow(row.id, "comment", event.target.value)}
+                    placeholder="Opcional"
+                    value={row.comment}
+                  />
+                </label>
+              </div>
+            </article>
+          ))}
+          {visibleRows.length === 0 ? (
+            <article className="mobile-record-card">
+              <p className="muted">No hay productos que coincidan con la busqueda o categoria seleccionada.</p>
+            </article>
+          ) : null}
+        </div>
+
+        <div className="table-wrap desktop-table">
           <table>
             <thead>
               <tr>

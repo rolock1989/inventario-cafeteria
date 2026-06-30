@@ -1,14 +1,23 @@
 import { mockInventories, mockProducts } from "@/lib/mock-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { AppUser, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
+import { AppUser, Category, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
 import { assertActiveUser, getAuthSession } from "@/lib/auth";
 
 type ProductRow = {
   id: string;
   name: string;
-  category: string;
+  category: string | null;
+  category_id: string | null;
+  categories?: Pick<CategoryRow, "id" | "name" | "active"> | Pick<CategoryRow, "id" | "name" | "active">[] | null;
   unit: string;
   active: boolean;
+};
+
+type CategoryRow = {
+  id: string;
+  name: string;
+  active: boolean;
+  created_at?: string;
 };
 
 type ProfileRow = {
@@ -64,12 +73,24 @@ function requirePersistence() {
 }
 
 function mapProduct(row: ProductRow): Product {
+  const category = Array.isArray(row.categories) ? row.categories[0] : row.categories;
+
   return {
     id: row.id,
     name: row.name,
-    category: row.category,
+    category: category?.name ?? row.category ?? "Sin categoria",
+    categoryId: row.category_id ?? category?.id ?? null,
     unit: row.unit,
     active: row.active
+  };
+}
+
+function mapCategory(row: CategoryRow): Category {
+  return {
+    id: row.id,
+    name: row.name,
+    active: row.active,
+    createdAt: row.created_at
   };
 }
 
@@ -108,6 +129,7 @@ function mapInventoryItem(row: InventoryItemRow): InventoryItem {
     productId: row.product_id ?? "",
     productName: row.product_name,
     category: row.category,
+    categoryId: null,
     unit: row.unit,
     physicalStock: Number(row.physical_stock),
     fudoStock: Number(row.fudo_stock),
@@ -136,7 +158,10 @@ export async function listProducts(options: { activeOnly?: boolean } = {}) {
     return options.activeOnly ? mockProducts.filter((product) => product.active) : mockProducts;
   }
 
-  let query = requireSupabase().from("products").select("id,name,category,unit,active").order("name");
+  let query = requireSupabase()
+    .from("products")
+    .select("id,name,category,category_id,unit,active,categories(id,name,active)")
+    .order("name");
 
   if (options.activeOnly) {
     query = query.eq("active", true);
@@ -153,16 +178,18 @@ export async function listProducts(options: { activeOnly?: boolean } = {}) {
 
 export async function createProduct(input: Omit<Product, "id">) {
   requirePersistence();
+  const categoryName = input.categoryId ? await getCategoryName(input.categoryId) : input.category;
 
   const { data, error } = await requireSupabase()
     .from("products")
     .insert({
       name: input.name,
-      category: input.category,
+      category: categoryName,
+      category_id: input.categoryId || null,
       unit: input.unit,
       active: input.active
     })
-    .select("id,name,category,unit,active")
+    .select("id,name,category,category_id,unit,active,categories(id,name,active)")
     .single();
 
   if (error) {
@@ -174,11 +201,20 @@ export async function createProduct(input: Omit<Product, "id">) {
 
 export async function updateProductRecord(id: string, patch: Partial<Omit<Product, "id">>) {
   requirePersistence();
+  const nextPatch = { ...patch };
+
+  if (Object.prototype.hasOwnProperty.call(nextPatch, "categoryId")) {
+    nextPatch.category = nextPatch.categoryId ? await getCategoryName(nextPatch.categoryId) : "Sin categoria";
+  }
 
   const { data, error } = await requireSupabase()
     .from("products")
     .update({
-      ...patch,
+      name: nextPatch.name,
+      category: nextPatch.category,
+      category_id: nextPatch.categoryId,
+      unit: nextPatch.unit,
+      active: nextPatch.active,
       updated_at: new Date().toISOString()
     })
     .eq("id", id)
@@ -191,6 +227,97 @@ export async function updateProductRecord(id: string, patch: Partial<Omit<Produc
 
   if (!data) {
     throw new Error("No se pudo guardar el producto: Supabase no devolvio la fila actualizada. Revisa permisos RLS.");
+  }
+}
+
+export async function listCategories(options: { activeOnly?: boolean } = {}) {
+  requirePersistence();
+
+  let query = requireSupabase().from("categories").select("id,name,active,created_at").order("name");
+
+  if (options.activeOnly) {
+    query = query.eq("active", true);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(`No se pudieron cargar las categorias: ${error.message}`);
+  }
+
+  return (data as CategoryRow[]).map(mapCategory);
+}
+
+async function getCategoryName(categoryId: string) {
+  const { data, error } = await requireSupabase().from("categories").select("name").eq("id", categoryId).single();
+
+  if (error) {
+    throw new Error(`No se pudo cargar la categoria: ${error.message}`);
+  }
+
+  return data.name as string;
+}
+
+export async function createCategory(input: Omit<Category, "id" | "createdAt">) {
+  requirePersistence();
+
+  const { data, error } = await requireSupabase()
+    .from("categories")
+    .insert({
+      name: input.name,
+      active: input.active
+    })
+    .select("id,name,active,created_at")
+    .single();
+
+  if (error) {
+    throw new Error(`No se pudo crear la categoria: ${error.message}`);
+  }
+
+  return mapCategory(data as CategoryRow);
+}
+
+export async function updateCategoryRecord(id: string, patch: Partial<Omit<Category, "id" | "createdAt">>) {
+  requirePersistence();
+
+  const { data, error } = await requireSupabase()
+    .from("categories")
+    .update(patch)
+    .eq("id", id)
+    .select("id,name,active,created_at")
+    .single();
+
+  if (error) {
+    throw new Error(`No se pudo guardar la categoria: ${error.message}`);
+  }
+
+  return mapCategory(data as CategoryRow);
+}
+
+export async function deleteCategoryRecord(id: string) {
+  requirePersistence();
+
+  const { count, error: countError } = await requireSupabase()
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("category_id", id);
+
+  if (countError) {
+    throw new Error(`No se pudo revisar si la categoria tiene productos: ${countError.message}`);
+  }
+
+  if ((count ?? 0) > 0) {
+    throw new Error("No se puede eliminar la categoria porque tiene productos asociados.");
+  }
+
+  const { data, error } = await requireSupabase().from("categories").delete().eq("id", id).select("id").single();
+
+  if (error) {
+    throw new Error(`No se pudo eliminar la categoria: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("No se pudo eliminar la categoria. Revisa permisos RLS.");
   }
 }
 

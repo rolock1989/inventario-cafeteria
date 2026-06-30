@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Coffee, History, Package, Users, ClipboardList, LogOut } from "lucide-react";
+import { BarChart3, Coffee, History, Package, Users, ClipboardList, LogOut, Menu, X, Tags } from "lucide-react";
 import { loadCurrentUser } from "@/lib/repositories";
 import { useEffect, useState } from "react";
 import { AppUser } from "@/lib/types";
 import { signOut } from "@/lib/auth";
 
 const navItems = [
-  { href: "/dashboard", label: "Inicio", icon: BarChart3, roles: ["admin"] },
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin"] },
   { href: "/dashboard/inventario", label: "Inventario", icon: ClipboardList, roles: ["admin", "trabajador"] },
   { href: "/dashboard/productos", label: "Productos", icon: Package, roles: ["admin"] },
+  { href: "/dashboard/categorias", label: "Categorias", icon: Tags, roles: ["admin"] },
   { href: "/dashboard/historial", label: "Historial", icon: History, roles: ["admin", "trabajador"] },
   { href: "/dashboard/usuarios", label: "Usuarios", icon: Users, roles: ["admin"] }
 ];
@@ -21,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
   const [message, setMessage] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [user, setUser] = useState<AppUser>({
     id: "",
     name: "Cargando usuario",
@@ -66,27 +68,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  function closeMobileMenu() {
+    setMenuOpen(false);
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link className="brand" href="/dashboard">
-          <span className="brand-mark">
-            <Coffee size={24} />
-          </span>
-          Inventario Cafe
-        </Link>
-        <nav className="nav-list" aria-label="Principal">
+        <div className="sidebar-top">
+          <Link className="brand" href="/dashboard" onClick={closeMobileMenu}>
+            <span className="brand-mark">
+              <Coffee size={24} />
+            </span>
+            Inventario Cafe
+          </Link>
+          <button
+            aria-expanded={menuOpen}
+            aria-label={menuOpen ? "Cerrar menu" : "Abrir menu"}
+            className="mobile-menu-button"
+            onClick={() => setMenuOpen((current) => !current)}
+            type="button"
+          >
+            {menuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+        </div>
+        <nav className={`nav-list ${menuOpen ? "open" : ""}`} aria-label="Principal">
           {visibleItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
 
             return (
-              <Link className={`nav-item ${active ? "active" : ""}`} href={item.href} key={item.href}>
+              <Link className={`nav-item ${active ? "active" : ""}`} href={item.href} key={item.href} onClick={closeMobileMenu}>
                 <Icon size={18} />
                 {item.label}
               </Link>
             );
           })}
+          <button className="nav-item mobile-logout" onClick={handleSignOut} type="button">
+            <LogOut size={18} />
+            Cerrar sesion
+          </button>
         </nav>
         <div className="sidebar-footer">
           <strong>{user.name}</strong>

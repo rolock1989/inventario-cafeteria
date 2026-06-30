@@ -5,11 +5,13 @@
 grant usage on schema public to anon, authenticated;
 
 grant select, insert, update, delete on table public.products to anon, authenticated;
+grant select, insert, update, delete on table public.categories to anon, authenticated;
 grant select, insert, update, delete on table public.profiles to anon, authenticated;
 grant select, insert, update, delete on table public.inventory_sessions to anon, authenticated;
 grant select, insert, update, delete on table public.inventory_items to anon, authenticated;
 
 alter table public.products enable row level security;
+alter table public.categories enable row level security;
 alter table public.profiles enable row level security;
 alter table public.inventory_sessions enable row level security;
 alter table public.inventory_items enable row level security;
@@ -17,6 +19,14 @@ alter table public.inventory_items enable row level security;
 drop policy if exists "dev anon all products" on public.products;
 create policy "dev anon all products"
 on public.products
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "dev anon all categories" on public.categories;
+create policy "dev anon all categories"
+on public.categories
 for all
 to anon, authenticated
 using (true)

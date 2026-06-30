@@ -24,10 +24,18 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  category text not null,
+  category text,
+  category_id uuid references public.categories(id) on delete restrict,
   unit text not null,
   active boolean not null default true,
   created_at timestamptz not null default now(),
@@ -59,12 +67,15 @@ create table if not exists public.inventory_items (
 );
 
 create index if not exists products_active_idx on public.products(active);
+create index if not exists products_category_id_idx on public.products(category_id);
+create index if not exists categories_active_idx on public.categories(active);
 create index if not exists profiles_active_idx on public.profiles(active);
 create index if not exists inventory_sessions_user_idx on public.inventory_sessions(user_id);
 create index if not exists inventory_sessions_submitted_at_idx on public.inventory_sessions(submitted_at);
 create index if not exists inventory_items_session_idx on public.inventory_items(inventory_session_id);
 
 alter table public.profiles enable row level security;
+alter table public.categories enable row level security;
 alter table public.products enable row level security;
 alter table public.inventory_sessions enable row level security;
 alter table public.inventory_items enable row level security;
@@ -74,6 +85,7 @@ drop policy if exists "Demo anon can manage products" on public.products;
 drop policy if exists "Demo anon can manage inventory sessions" on public.inventory_sessions;
 drop policy if exists "Demo anon can manage inventory items" on public.inventory_items;
 drop policy if exists "dev anon all profiles" on public.profiles;
+drop policy if exists "dev anon all categories" on public.categories;
 drop policy if exists "dev anon all products" on public.products;
 drop policy if exists "dev anon all inventory sessions" on public.inventory_sessions;
 drop policy if exists "dev anon all inventory items" on public.inventory_items;
@@ -115,6 +127,35 @@ with check (
 
 drop policy if exists "Authenticated users can read active products" on public.products;
 drop policy if exists "Admins can manage products" on public.products;
+drop policy if exists "Authenticated users can read active categories" on public.categories;
+drop policy if exists "Admins can manage categories" on public.categories;
+
+create policy "Authenticated users can read active categories"
+on public.categories for select
+to authenticated
+using (
+  active = true
+  or exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin' and active = true
+  )
+);
+
+create policy "Admins can manage categories"
+on public.categories for all
+to authenticated
+using (
+  exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin' and active = true
+  )
+)
+with check (
+  exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin' and active = true
+  )
+);
 
 create policy "Authenticated users can read active products"
 on public.products for select

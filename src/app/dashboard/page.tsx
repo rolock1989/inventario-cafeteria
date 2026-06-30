@@ -101,7 +101,25 @@ export default function DashboardPage() {
               <h2>Revision prioritaria</h2>
             </div>
           </div>
-          <div className="table-wrap">
+          <div className="mobile-card-list">
+            {differentItems.map((item) => (
+              <article className="mobile-record-card compact" key={item.id}>
+                <div className="mobile-record-header">
+                  <div>
+                    <h3>{item.productName}</h3>
+                    <p className="muted">{item.category}</p>
+                  </div>
+                  <DifferenceBadge value={item.difference} />
+                </div>
+              </article>
+            ))}
+            {differentItems.length === 0 ? (
+              <article className="mobile-record-card compact">
+                <p className="muted">No hay diferencias para mostrar.</p>
+              </article>
+            ) : null}
+          </div>
+          <div className="table-wrap desktop-table">
             <table>
               <thead>
                 <tr>

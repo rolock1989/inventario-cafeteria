@@ -76,7 +76,31 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
       </section>
 
       <section className="card">
-        <div className="table-wrap">
+        <div className="mobile-card-list">
+          {inventory.items.map((item) => (
+            <article className="mobile-record-card" key={item.id}>
+              <div className="mobile-record-header">
+                <div>
+                  <h3>{item.productName}</h3>
+                  <p className="muted">{item.category}</p>
+                </div>
+                <DifferenceBadge value={item.difference} />
+              </div>
+              <div className="mobile-meta-grid">
+                <span>Unidad</span>
+                <strong>{item.unit}</strong>
+                <span>Fisico</span>
+                <strong>{item.physicalStock}</strong>
+                <span>FUDO</span>
+                <strong>{item.fudoStock}</strong>
+                <span>Comentario</span>
+                <strong>{item.comment || "Sin comentario"}</strong>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="table-wrap desktop-table">
           <table>
             <thead>
               <tr>

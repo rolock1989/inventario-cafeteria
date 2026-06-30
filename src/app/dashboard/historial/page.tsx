@@ -101,7 +101,43 @@ export default function HistoryPage() {
       </section>
 
       <section className="card">
-        <div className="table-wrap">
+        <div className="mobile-card-list">
+          {filteredInventories.map((inventory) => {
+            const summary = summarizeInventory(inventory);
+            const totalDifference = inventory.items.reduce((total, item) => total + item.difference, 0);
+
+            return (
+              <article className="mobile-record-card" key={inventory.id}>
+                <div className="mobile-record-header">
+                  <div>
+                    <h3>{formatDateTime(inventory.submittedAt)}</h3>
+                    <p className="muted">{inventory.userName}</p>
+                  </div>
+                  <DifferenceBadge value={totalDifference} />
+                </div>
+                <div className="mobile-meta-grid">
+                  <span>Turno</span>
+                  <strong>{inventory.shift}</strong>
+                  <span>Productos</span>
+                  <strong>{summary.totalProducts}</strong>
+                  <span>Con diferencias</span>
+                  <strong>{summary.productsWithDifferences}</strong>
+                </div>
+                <Link className="btn secondary mobile-full-button" href={`/dashboard/historial/${inventory.id}`}>
+                  <Eye size={17} />
+                  Ver detalle
+                </Link>
+              </article>
+            );
+          })}
+          {filteredInventories.length === 0 ? (
+            <article className="mobile-record-card">
+              <p className="muted">No hay inventarios para los filtros seleccionados.</p>
+            </article>
+          ) : null}
+        </div>
+
+        <div className="table-wrap desktop-table">
           <table>
             <thead>
               <tr>
