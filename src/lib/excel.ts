@@ -1,21 +1,29 @@
 import { InventoryRecord } from "@/lib/types";
-import { formatDateTime } from "@/lib/inventory";
+import { formatDateTime, getItemLossAmount } from "@/lib/inventory";
 
-export async function downloadInventoriesExcel(inventories: InventoryRecord[], fileName: string) {
+export async function downloadInventoriesExcel(inventories: InventoryRecord[], fileName: string, includeLoss = false) {
   const xlsx = await import("xlsx");
 
   const rows = inventories.flatMap((inventory) =>
-    inventory.items.map((item) => ({
-      "Fecha del inventario": formatDateTime(inventory.submittedAt ?? inventory.createdAt),
-      "Usuario/turno": `${inventory.userName} / ${inventory.shift}`,
-      Producto: item.productName,
-      Categoria: item.category,
-      "Unidad de medida": item.unit,
-      "Stock fisico": item.physicalStock,
-      "Stock FUDO": item.fudoStock,
-      Diferencia: item.difference,
-      Comentario: item.comment ?? ""
-    }))
+    inventory.items.map((item) => {
+      const row: Record<string, string | number> = {
+        "Fecha del inventario": formatDateTime(inventory.submittedAt ?? inventory.createdAt),
+        "Usuario/turno": `${inventory.userName} / ${inventory.shift}`,
+        Producto: item.productName,
+        Categoria: item.category,
+        "Unidad de medida": item.unit,
+        "Stock fisico": item.physicalStock,
+        "Stock FUDO": item.fudoStock,
+        Diferencia: item.difference,
+        Comentario: item.comment ?? ""
+      };
+
+      if (includeLoss) {
+        row["Monto pérdida"] = getItemLossAmount(item);
+      }
+
+      return row;
+    })
   );
 
   const worksheet = xlsx.utils.json_to_sheet(rows);

@@ -3,7 +3,14 @@
 import { Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Category } from "@/lib/types";
-import { createCategory, deleteCategoryRecord, listCategories, updateCategoryRecord } from "@/lib/repositories";
+import {
+  countProductsByCategory,
+  createCategory,
+  deleteCategoryRecord,
+  listCategories,
+  moveCategoryProductsAndDelete,
+  updateCategoryRecord
+} from "@/lib/repositories";
 import { useEffect, useState } from "react";
 
 const emptyCategory: Omit<Category, "id" | "createdAt"> = {
@@ -17,6 +24,9 @@ export default function CategoriesPage() {
   const [message, setMessage] = useState("Cargando categorias...");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [categoryToMove, setCategoryToMove] = useState<{ category: Category; productCount: number } | null>(null);
+  const [targetCategoryId, setTargetCategoryId] = useState("");
+  const [movingProducts, setMovingProducts] = useState(false);
 
   async function loadCategories() {
     try {
@@ -84,12 +94,48 @@ export default function CategoriesPage() {
     }
 
     try {
+      const productCount = await countProductsByCategory(category.id);
+
+      if (productCount > 0) {
+        setCategoryToMove({ category, productCount });
+        setTargetCategoryId("");
+        setMessage(
+          `No se puede eliminar "${category.name}" porque ${productCount} productos la utilizan. Muevelos a otra categoria para continuar.`
+        );
+        return;
+      }
+
       await deleteCategoryRecord(category.id);
       setCategories((current) => current.filter((item) => item.id !== category.id));
       setMessage("Categoria eliminada correctamente.");
     } catch (error) {
       console.error("Error al eliminar categoria", error);
       setMessage(error instanceof Error ? error.message : "No se pudo eliminar la categoria.");
+    }
+  }
+
+  async function moveProductsAndDeleteCategory() {
+    if (!categoryToMove) {
+      return;
+    }
+
+    if (!targetCategoryId) {
+      setMessage("Selecciona una categoria de destino.");
+      return;
+    }
+
+    try {
+      setMovingProducts(true);
+      await moveCategoryProductsAndDelete(categoryToMove.category.id, targetCategoryId);
+      setCategories((current) => current.filter((item) => item.id !== categoryToMove.category.id));
+      setCategoryToMove(null);
+      setTargetCategoryId("");
+      setMessage("Productos movidos y categoria eliminada correctamente.");
+    } catch (error) {
+      console.error("Error al mover productos y eliminar categoria", error);
+      setMessage(error instanceof Error ? error.message : "No se pudo mover los productos y eliminar la categoria.");
+    } finally {
+      setMovingProducts(false);
     }
   }
 
@@ -134,6 +180,48 @@ export default function CategoriesPage() {
           <span className="badge positive">{categories.filter((category) => category.active).length} activas</span>
         </article>
       </section>
+
+      {categoryToMove ? (
+        <section className="card" style={{ marginTop: 18 }}>
+          <div className="section-title">
+            <div>
+              <h2>Mover productos antes de eliminar</h2>
+              <p className="muted">
+                {categoryToMove.productCount} productos usan &quot;{categoryToMove.category.name}&quot;. Selecciona una categoria de destino.
+              </p>
+            </div>
+            <button
+              className="btn ghost"
+              onClick={() => {
+                setCategoryToMove(null);
+                setTargetCategoryId("");
+              }}
+              type="button"
+            >
+              Cancelar
+            </button>
+          </div>
+          <div className="form-grid">
+            <label className="field">
+              Categoria de destino
+              <select onChange={(event) => setTargetCategoryId(event.target.value)} value={targetCategoryId}>
+                <option value="">Seleccionar categoria</option>
+                {categories
+                  .filter((category) => category.id !== categoryToMove.category.id)
+                  .map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <button className="btn" disabled={movingProducts || !targetCategoryId} onClick={moveProductsAndDeleteCategory} type="button">
+              <Trash2 size={18} />
+              Mover y eliminar
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="card" style={{ marginTop: 18 }}>
         <div className="section-title">

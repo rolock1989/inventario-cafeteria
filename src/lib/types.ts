@@ -15,6 +15,7 @@ export type Product = {
   category: string;
   categoryId?: string | null;
   unit: string;
+  price: number;
   active: boolean;
 };
 
@@ -34,6 +35,8 @@ export type InventoryItem = {
   category: string;
   categoryId?: string | null;
   unit: string;
+  unitPriceAtTime: number;
+  lossAmount: number;
   physicalStock: number;
   fudoStock: number;
   difference: number;

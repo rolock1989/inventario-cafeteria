@@ -33,6 +33,7 @@ export const mockProducts: Product[] = [
     name: "Cafe espresso blend",
     category: "Cafe",
     unit: "kg",
+    price: 0,
     active: true
   },
   {
@@ -40,6 +41,7 @@ export const mockProducts: Product[] = [
     name: "Leche entera",
     category: "Lacteos",
     unit: "litros",
+    price: 0,
     active: true
   },
   {
@@ -47,6 +49,7 @@ export const mockProducts: Product[] = [
     name: "Bebida de avena",
     category: "Bebidas vegetales",
     unit: "litros",
+    price: 0,
     active: true
   },
   {
@@ -54,6 +57,7 @@ export const mockProducts: Product[] = [
     name: "Azucar rubia",
     category: "Insumos",
     unit: "kg",
+    price: 0,
     active: true
   },
   {
@@ -61,6 +65,7 @@ export const mockProducts: Product[] = [
     name: "Croissant mantequilla",
     category: "Pasteleria",
     unit: "unidades",
+    price: 0,
     active: true
   },
   {
@@ -68,6 +73,7 @@ export const mockProducts: Product[] = [
     name: "Vasos compostables 12 oz",
     category: "Packaging",
     unit: "unidades",
+    price: 0,
     active: true
   },
   {
@@ -75,6 +81,7 @@ export const mockProducts: Product[] = [
     name: "Cacao amargo",
     category: "Insumos",
     unit: "kg",
+    price: 0,
     active: false
   }
 ];
@@ -98,6 +105,8 @@ export const mockInventories: InventoryRecord[] = [
         physicalStock: 18,
         fudoStock: 20,
         difference: -2,
+        unitPriceAtTime: 0,
+        lossAmount: 0,
         comment: "Se uso para calibracion de molino."
       },
       {
@@ -108,7 +117,9 @@ export const mockInventories: InventoryRecord[] = [
         unit: "litros",
         physicalStock: 42,
         fudoStock: 39,
-        difference: 3
+        difference: 3,
+        unitPriceAtTime: 0,
+        lossAmount: 0
       },
       {
         id: "itm-3",
@@ -118,7 +129,9 @@ export const mockInventories: InventoryRecord[] = [
         unit: "litros",
         physicalStock: 16,
         fudoStock: 16,
-        difference: 0
+        difference: 0,
+        unitPriceAtTime: 0,
+        lossAmount: 0
       },
       {
         id: "itm-4",
@@ -128,7 +141,9 @@ export const mockInventories: InventoryRecord[] = [
         unit: "kg",
         physicalStock: 11,
         fudoStock: 13,
-        difference: -2
+        difference: -2,
+        unitPriceAtTime: 0,
+        lossAmount: 0
       },
       {
         id: "itm-5",
@@ -139,6 +154,8 @@ export const mockInventories: InventoryRecord[] = [
         physicalStock: 28,
         fudoStock: 25,
         difference: 3,
+        unitPriceAtTime: 0,
+        lossAmount: 0,
         comment: "Produccion extra del dia anterior."
       }
     ]
@@ -160,7 +177,9 @@ export const mockInventories: InventoryRecord[] = [
         unit: "kg",
         physicalStock: 21,
         fudoStock: 21,
-        difference: 0
+        difference: 0,
+        unitPriceAtTime: 0,
+        lossAmount: 0
       },
       {
         id: "itm-7",
@@ -170,7 +189,9 @@ export const mockInventories: InventoryRecord[] = [
         unit: "litros",
         physicalStock: 34,
         fudoStock: 36,
-        difference: -2
+        difference: -2,
+        unitPriceAtTime: 0,
+        lossAmount: 0
       },
       {
         id: "itm-8",
@@ -180,7 +201,9 @@ export const mockInventories: InventoryRecord[] = [
         unit: "unidades",
         physicalStock: 420,
         fudoStock: 400,
-        difference: 20
+        difference: 20,
+        unitPriceAtTime: 0,
+        lossAmount: 0
       }
     ]
   }

@@ -47,6 +47,30 @@ export function summarizeInventory(inventory?: InventoryRecord): InventorySummar
   );
 }
 
+export function getItemLossAmount(item: InventoryItem) {
+  if (Number.isFinite(item.lossAmount) && item.lossAmount > 0) {
+    return item.lossAmount;
+  }
+
+  if (item.physicalStock < item.fudoStock) {
+    return (item.fudoStock - item.physicalStock) * item.unitPriceAtTime;
+  }
+
+  return 0;
+}
+
+export function getInventoryTotalLoss(inventory?: InventoryRecord) {
+  return inventory?.items.reduce((total, item) => total + getItemLossAmount(item), 0) ?? 0;
+}
+
+export function formatCLP(value: number) {
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "CLP",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
 export function createInventoryRows(products: Product[]): InventoryItem[] {
   return products.map((product) => ({
     id: `draft-${product.id}`,
@@ -55,6 +79,8 @@ export function createInventoryRows(products: Product[]): InventoryItem[] {
     category: product.category,
     categoryId: product.categoryId,
     unit: product.unit,
+    unitPriceAtTime: product.price,
+    lossAmount: 0,
     physicalStock: 0,
     fudoStock: 0,
     difference: 0,

@@ -6,7 +6,10 @@ import { createInventoryRows } from "@/lib/inventory";
 import { loadCurrentUser, listCategories, listProducts, submitInventoryRecord } from "@/lib/repositories";
 import { AppUser, Category, InventoryItem } from "@/lib/types";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
-import { useEffect, useMemo, useState } from "react";
+import { FocusEvent, useEffect, useMemo, useState } from "react";
+
+type StockField = "physicalStock" | "fudoStock";
+type StockDrafts = Record<string, Partial<Record<StockField, string>>>;
 
 export default function InventoryPage() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
@@ -16,6 +19,8 @@ export default function InventoryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todas");
   const [submitting, setSubmitting] = useState(false);
+  const [stockDrafts, setStockDrafts] = useState<StockDrafts>({});
+  const isAdmin = currentUser?.role === "admin";
 
   useEffect(() => {
     async function loadInventoryData() {
@@ -60,7 +65,108 @@ export default function InventoryPage() {
     [visibleRows]
   );
 
-  function updateRow(id: string, field: "physicalStock" | "fudoStock" | "comment", value: string) {
+  function acceptsDecimalStock(unit: string) {
+    const normalizedUnit = unit.trim().toLowerCase();
+    return normalizedUnit === "kg" || normalizedUnit === "lts" || normalizedUnit === "lt" || normalizedUnit.includes("litro");
+  }
+
+  function normalizeStockInput(value: string, row: InventoryItem) {
+    const normalizedValue = value.replace(",", ".");
+
+    if (normalizedValue === "") {
+      return "";
+    }
+
+    const numericValue = Number(normalizedValue);
+
+    if (!Number.isFinite(numericValue)) {
+      return normalizedValue;
+    }
+
+    if (acceptsDecimalStock(row.unit)) {
+      return normalizedValue;
+    }
+
+    return String(Math.trunc(numericValue));
+  }
+
+  function parseStockInput(value: string) {
+    if (value === "") {
+      return 0;
+    }
+
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : 0;
+  }
+
+  function getStockInputValue(row: InventoryItem, field: StockField) {
+    return stockDrafts[row.id]?.[field] ?? String(row[field]);
+  }
+
+  function handleStockFocus(event: FocusEvent<HTMLInputElement>) {
+    if (event.currentTarget.value === "0") {
+      event.currentTarget.select();
+    }
+  }
+
+  function handleStockBlur(id: string, field: StockField) {
+    setStockDrafts((currentDrafts) => {
+      const currentValue = currentDrafts[id]?.[field];
+
+      if (currentValue === undefined) {
+        return currentDrafts;
+      }
+
+      const nextDrafts = { ...currentDrafts };
+      const nextRowDraft = { ...nextDrafts[id] };
+      delete nextRowDraft[field];
+
+      if (Object.keys(nextRowDraft).length === 0) {
+        delete nextDrafts[id];
+      } else {
+        nextDrafts[id] = nextRowDraft;
+      }
+
+      return nextDrafts;
+    });
+  }
+
+  function updateStockRow(row: InventoryItem, field: StockField, value: string) {
+    const nextValue = normalizeStockInput(value, row);
+    const numericValue = parseStockInput(nextValue);
+
+    setStockDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [row.id]: {
+        ...currentDrafts[row.id],
+        [field]: nextValue
+      }
+    }));
+
+    setRows((currentRows) =>
+      currentRows.map((currentRow) => {
+        if (currentRow.id !== row.id) {
+          return currentRow;
+        }
+
+        const nextRow = {
+          ...currentRow,
+          [field]: numericValue
+        };
+
+        return {
+          ...nextRow,
+          difference: nextRow.physicalStock - nextRow.fudoStock,
+          lossAmount:
+            nextRow.physicalStock < nextRow.fudoStock
+              ? (nextRow.fudoStock - nextRow.physicalStock) * nextRow.unitPriceAtTime
+              : 0
+        };
+      })
+    );
+  }
+
+  function updateRow(id: string, field: "comment", value: string) {
     setRows((currentRows) =>
       currentRows.map((row) => {
         if (row.id !== id) {
@@ -69,12 +175,16 @@ export default function InventoryPage() {
 
         const nextRow = {
           ...row,
-          [field]: field === "comment" ? value : Number(value)
+          [field]: value
         };
 
         return {
           ...nextRow,
-          difference: nextRow.physicalStock - nextRow.fudoStock
+          difference: nextRow.physicalStock - nextRow.fudoStock,
+          lossAmount:
+            nextRow.physicalStock < nextRow.fudoStock
+              ? (nextRow.fudoStock - nextRow.physicalStock) * nextRow.unitPriceAtTime
+              : 0
         };
       })
     );
@@ -104,9 +214,11 @@ export default function InventoryPage() {
           physicalStock: 0,
           fudoStock: 0,
           difference: 0,
+          lossAmount: 0,
           comment: ""
         }))
       );
+      setStockDrafts({});
       setStatus("Inventario enviado y guardado correctamente.");
     } catch (error) {
       console.error("Error al enviar inventario", error);
@@ -182,24 +294,38 @@ export default function InventoryPage() {
               <div className="mobile-meta-grid">
                 <span>Unidad</span>
                 <strong>{row.unit}</strong>
+                {isAdmin ? (
+                  <>
+                    <span>Monto pérdida</span>
+                    <strong>${row.lossAmount.toLocaleString("es-CL")}</strong>
+                  </>
+                ) : null}
               </div>
               <div className="form-grid mobile-inventory-fields">
                 <label className="field">
                   Stock FUDO
                   <input
                     min="0"
-                    onChange={(event) => updateRow(row.id, "fudoStock", event.target.value)}
+                    onBlur={() => handleStockBlur(row.id, "fudoStock")}
+                    onChange={(event) => updateStockRow(row, "fudoStock", event.target.value)}
+                    onFocus={handleStockFocus}
+                    inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
+                    step={acceptsDecimalStock(row.unit) ? "any" : "1"}
                     type="number"
-                    value={row.fudoStock}
+                    value={getStockInputValue(row, "fudoStock")}
                   />
                 </label>
                 <label className="field">
                   Stock fisico
                   <input
                     min="0"
-                    onChange={(event) => updateRow(row.id, "physicalStock", event.target.value)}
+                    onBlur={() => handleStockBlur(row.id, "physicalStock")}
+                    onChange={(event) => updateStockRow(row, "physicalStock", event.target.value)}
+                    onFocus={handleStockFocus}
+                    inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
+                    step={acceptsDecimalStock(row.unit) ? "any" : "1"}
                     type="number"
-                    value={row.physicalStock}
+                    value={getStockInputValue(row, "physicalStock")}
                   />
                 </label>
                 <label className="field full">
@@ -230,6 +356,7 @@ export default function InventoryPage() {
                 <th>Stock fisico</th>
                 <th>Stock FUDO</th>
                 <th>Diferencia</th>
+                {isAdmin ? <th>Monto pérdida</th> : null}
                 <th>Comentario</th>
               </tr>
             </thead>
@@ -241,23 +368,32 @@ export default function InventoryPage() {
                   <td>{row.unit}</td>
                   <td>
                     <input
-                      min="0"
-                      onChange={(event) => updateRow(row.id, "physicalStock", event.target.value)}
+                    min="0"
+                      onBlur={() => handleStockBlur(row.id, "physicalStock")}
+                      onChange={(event) => updateStockRow(row, "physicalStock", event.target.value)}
+                      onFocus={handleStockFocus}
+                      inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
+                      step={acceptsDecimalStock(row.unit) ? "any" : "1"}
                       type="number"
-                      value={row.physicalStock}
+                      value={getStockInputValue(row, "physicalStock")}
                     />
                   </td>
                   <td>
                     <input
                       min="0"
-                      onChange={(event) => updateRow(row.id, "fudoStock", event.target.value)}
+                      onBlur={() => handleStockBlur(row.id, "fudoStock")}
+                      onChange={(event) => updateStockRow(row, "fudoStock", event.target.value)}
+                      onFocus={handleStockFocus}
+                      inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
+                      step={acceptsDecimalStock(row.unit) ? "any" : "1"}
                       type="number"
-                      value={row.fudoStock}
+                      value={getStockInputValue(row, "fudoStock")}
                     />
                   </td>
                   <td>
                     <DifferenceBadge value={row.difference} />
                   </td>
+                  {isAdmin ? <td>${row.lossAmount.toLocaleString("es-CL")}</td> : null}
                   <td>
                     <input
                       onChange={(event) => updateRow(row.id, "comment", event.target.value)}
@@ -269,7 +405,7 @@ export default function InventoryPage() {
               ))}
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={7}>
+                  <td className="muted" colSpan={isAdmin ? 8 : 7}>
                     No hay productos que coincidan con la busqueda o categoria seleccionada.
                   </td>
                 </tr>

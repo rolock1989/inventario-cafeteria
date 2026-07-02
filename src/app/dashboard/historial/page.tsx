@@ -1,12 +1,19 @@
 "use client";
 
-import { Download, Eye } from "lucide-react";
+import { Download, Eye, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
-import { filterInventoriesByDateRange, formatDateForInput, formatDateTime, summarizeInventory } from "@/lib/inventory";
+import {
+  filterInventoriesByDateRange,
+  formatCLP,
+  formatDateForInput,
+  formatDateTime,
+  getInventoryTotalLoss,
+  summarizeInventory
+} from "@/lib/inventory";
 import { downloadInventoriesExcel } from "@/lib/excel";
-import { listInventories } from "@/lib/repositories";
+import { deleteInventoryRecord, listInventories, loadCurrentUser } from "@/lib/repositories";
 import { InventoryRecord } from "@/lib/types";
 import { useEffect, useMemo, useState } from "react";
 
@@ -20,12 +27,15 @@ export default function HistoryPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState(todayForInput);
   const [message, setMessage] = useState("Cargando historial...");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadHistory() {
       try {
-        const records = await listInventories();
+        const [records, user] = await Promise.all([listInventories(), loadCurrentUser()]);
         setInventories(records);
+        setIsAdmin(user.role === "admin");
 
         if (records.length > 0) {
           const times = records.map((inventory) => new Date(inventory.submittedAt ?? inventory.createdAt).getTime());
@@ -57,7 +67,27 @@ export default function HistoryPage() {
   async function exportExcel() {
     const filenameStart = startDate || "inicio";
     const filenameEnd = endDate || "termino";
-    await downloadInventoriesExcel(filteredInventories, `inventarios-${filenameStart}-${filenameEnd}.xlsx`);
+    await downloadInventoriesExcel(filteredInventories, `inventarios-${filenameStart}-${filenameEnd}.xlsx`, isAdmin);
+  }
+
+  async function deleteInventory(inventory: InventoryRecord) {
+    const confirmed = window.confirm(`Eliminar el inventario de ${inventory.userName} del ${formatDateTime(inventory.submittedAt)}?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingId(inventory.id);
+      await deleteInventoryRecord(inventory.id);
+      setInventories((current) => current.filter((currentInventory) => currentInventory.id !== inventory.id));
+      setMessage("Inventario eliminado correctamente.");
+    } catch (error) {
+      console.error("Error al eliminar inventario", error);
+      setMessage(error instanceof Error ? error.message : "No se pudo eliminar el inventario.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -122,11 +152,28 @@ export default function HistoryPage() {
                   <strong>{summary.totalProducts}</strong>
                   <span>Con diferencias</span>
                   <strong>{summary.productsWithDifferences}</strong>
+                  {isAdmin ? (
+                    <>
+                      <span>Monto pérdida</span>
+                      <strong>{formatCLP(getInventoryTotalLoss(inventory))}</strong>
+                    </>
+                  ) : null}
                 </div>
                 <Link className="btn secondary mobile-full-button" href={`/dashboard/historial/${inventory.id}`}>
                   <Eye size={17} />
                   Ver detalle
                 </Link>
+                {isAdmin ? (
+                  <button
+                    className="btn ghost mobile-full-button"
+                    disabled={deletingId === inventory.id}
+                    onClick={() => deleteInventory(inventory)}
+                    type="button"
+                  >
+                    <Trash2 size={17} />
+                    Eliminar
+                  </button>
+                ) : null}
               </article>
             );
           })}
@@ -147,7 +194,9 @@ export default function HistoryPage() {
                 <th>Productos</th>
                 <th>Con diferencias</th>
                 <th>Balance</th>
+                {isAdmin ? <th>Monto pérdida</th> : null}
                 <th>Detalle</th>
+                {isAdmin ? <th>Eliminar</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -165,18 +214,33 @@ export default function HistoryPage() {
                     <td>
                       <DifferenceBadge value={totalDifference} />
                     </td>
+                    {isAdmin ? (
+                      <td>{formatCLP(getInventoryTotalLoss(inventory))}</td>
+                    ) : null}
                     <td>
                       <Link className="btn secondary" href={`/dashboard/historial/${inventory.id}`}>
                         <Eye size={17} />
                         Ver
                       </Link>
                     </td>
+                    {isAdmin ? (
+                      <td>
+                        <button
+                          className="btn ghost"
+                          disabled={deletingId === inventory.id}
+                          onClick={() => deleteInventory(inventory)}
+                          type="button"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
               {filteredInventories.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={7}>
+                  <td className="muted" colSpan={isAdmin ? 9 : 7}>
                     No hay inventarios para los filtros seleccionados.
                   </td>
                 </tr>

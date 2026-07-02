@@ -37,6 +37,7 @@ create table if not exists public.products (
   category text,
   category_id uuid references public.categories(id) on delete restrict,
   unit text not null,
+  price numeric not null default 0,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -60,6 +61,8 @@ create table if not exists public.inventory_items (
   product_name text not null,
   category text not null,
   unit text not null,
+  unit_price_at_time numeric not null default 0,
+  loss_amount numeric not null default 0,
   physical_stock numeric not null default 0,
   fudo_stock numeric not null default 0,
   difference numeric generated always as (physical_stock - fudo_stock) stored,

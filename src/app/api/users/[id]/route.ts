@@ -65,6 +65,22 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: "No puedes eliminar tu propio usuario mientras estas conectado." }, { status: 400 });
     }
 
+    const { count, error: countError } = await admin
+      .from("inventory_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", params.id);
+
+    if (countError) {
+      return NextResponse.json({ error: countError.message }, { status: 400 });
+    }
+
+    if ((count ?? 0) > 0) {
+      return NextResponse.json(
+        { error: "Este usuario tiene inventarios asociados. Desactivalo para mantener la trazabilidad." },
+        { status: 400 }
+      );
+    }
+
     const { error: profileError } = await admin.from("profiles").delete().eq("id", params.id);
 
     if (profileError) {

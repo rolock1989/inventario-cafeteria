@@ -10,6 +10,7 @@ type ProductRow = {
   category_id: string | null;
   categories?: Pick<CategoryRow, "id" | "name" | "active"> | Pick<CategoryRow, "id" | "name" | "active">[] | null;
   unit: string;
+  price: number | null;
   active: boolean;
 };
 
@@ -48,6 +49,8 @@ type InventoryItemRow = {
   product_name: string;
   category: string;
   unit: string;
+  unit_price_at_time: number | null;
+  loss_amount: number | null;
   physical_stock: number;
   fudo_stock: number;
   difference: number;
@@ -81,6 +84,7 @@ function mapProduct(row: ProductRow): Product {
     category: category?.name ?? row.category ?? "Sin categoria",
     categoryId: row.category_id ?? category?.id ?? null,
     unit: row.unit,
+    price: Number(row.price ?? 0),
     active: row.active
   };
 }
@@ -131,6 +135,8 @@ function mapInventoryItem(row: InventoryItemRow): InventoryItem {
     category: row.category,
     categoryId: null,
     unit: row.unit,
+    unitPriceAtTime: Number(row.unit_price_at_time ?? 0),
+    lossAmount: Number(row.loss_amount ?? 0),
     physicalStock: Number(row.physical_stock),
     fudoStock: Number(row.fudo_stock),
     difference: Number(row.difference),
@@ -160,7 +166,7 @@ export async function listProducts(options: { activeOnly?: boolean } = {}) {
 
   let query = requireSupabase()
     .from("products")
-    .select("id,name,category,category_id,unit,active,categories(id,name,active)")
+    .select("id,name,category,category_id,unit,price,active,categories(id,name,active)")
     .order("name");
 
   if (options.activeOnly) {
@@ -187,9 +193,10 @@ export async function createProduct(input: Omit<Product, "id">) {
       category: categoryName,
       category_id: input.categoryId || null,
       unit: input.unit,
+      price: input.price,
       active: input.active
     })
-    .select("id,name,category,category_id,unit,active,categories(id,name,active)")
+    .select("id,name,category,category_id,unit,price,active,categories(id,name,active)")
     .single();
 
   if (error) {
@@ -214,6 +221,7 @@ export async function updateProductRecord(id: string, patch: Partial<Omit<Produc
       category: nextPatch.category,
       category_id: nextPatch.categoryId,
       unit: nextPatch.unit,
+      price: nextPatch.price,
       active: nextPatch.active,
       updated_at: new Date().toISOString()
     })
@@ -319,6 +327,46 @@ export async function deleteCategoryRecord(id: string) {
   if (!data) {
     throw new Error("No se pudo eliminar la categoria. Revisa permisos RLS.");
   }
+}
+
+export async function countProductsByCategory(categoryId: string) {
+  requirePersistence();
+
+  const { count, error } = await requireSupabase()
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("category_id", categoryId);
+
+  if (error) {
+    throw new Error(`No se pudo contar los productos de la categoria: ${error.message}`);
+  }
+
+  return count ?? 0;
+}
+
+export async function moveCategoryProductsAndDelete(categoryId: string, targetCategoryId: string) {
+  requirePersistence();
+
+  if (categoryId === targetCategoryId) {
+    throw new Error("Selecciona una categoria de destino distinta.");
+  }
+
+  const targetCategoryName = await getCategoryName(targetCategoryId);
+
+  const { error: moveError } = await requireSupabase()
+    .from("products")
+    .update({
+      category: targetCategoryName,
+      category_id: targetCategoryId,
+      updated_at: new Date().toISOString()
+    })
+    .eq("category_id", categoryId);
+
+  if (moveError) {
+    throw new Error(`No se pudieron mover los productos: ${moveError.message}`);
+  }
+
+  await deleteCategoryRecord(categoryId);
 }
 
 export async function deleteProductRecord(id: string) {
@@ -444,7 +492,7 @@ export async function listInventories() {
   const { data, error } = await requireSupabase()
     .from("inventory_sessions")
     .select(
-      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,physical_stock,fudo_stock,difference,comment)"
+      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
     )
     .order("submitted_at", { ascending: false });
 
@@ -463,7 +511,7 @@ export async function getInventoryRecord(id: string) {
   const { data, error } = await requireSupabase()
     .from("inventory_sessions")
     .select(
-      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,physical_stock,fudo_stock,difference,comment)"
+      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
     )
     .eq("id", id)
     .single();
@@ -473,6 +521,19 @@ export async function getInventoryRecord(id: string) {
   }
 
   return mapInventory(data as InventorySessionRow);
+}
+
+export async function deleteInventoryRecord(id: string) {
+  requirePersistence();
+
+  const response = await fetch(`/api/inventories/${id}`, {
+    method: "DELETE",
+    headers: await getAuthorizationHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo eliminar el inventario: ${await parseApiError(response)}`);
+  }
 }
 
 export async function submitInventoryRecord(user: AppUser, items: InventoryItem[]) {
@@ -504,6 +565,8 @@ export async function submitInventoryRecord(user: AppUser, items: InventoryItem[
     product_name: item.productName,
     category: item.category,
     unit: item.unit,
+    unit_price_at_time: item.unitPriceAtTime,
+    loss_amount: item.lossAmount,
     physical_stock: item.physicalStock,
     fudo_stock: item.fudoStock,
     comment: item.comment || null

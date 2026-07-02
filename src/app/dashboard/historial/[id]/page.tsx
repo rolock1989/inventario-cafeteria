@@ -4,20 +4,22 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { PageHeader } from "@/components/PageHeader";
-import { formatDateTime, summarizeInventory } from "@/lib/inventory";
-import { getInventoryRecord } from "@/lib/repositories";
+import { formatCLP, formatDateTime, getInventoryTotalLoss, getItemLossAmount, summarizeInventory } from "@/lib/inventory";
+import { getInventoryRecord, loadCurrentUser } from "@/lib/repositories";
 import { InventoryRecord } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 export default function InventoryDetailPage({ params }: { params: { id: string } }) {
   const [inventory, setInventory] = useState<InventoryRecord | null>(null);
   const [message, setMessage] = useState("Cargando detalle...");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     async function loadInventory() {
       try {
-        const record = await getInventoryRecord(params.id);
+        const [record, user] = await Promise.all([getInventoryRecord(params.id), loadCurrentUser()]);
         setInventory(record ?? null);
+        setIsAdmin(user.role === "admin");
         setMessage(record ? "Detalle cargado." : "Inventario no encontrado.");
       } catch (error) {
         console.error("Error al cargar detalle de inventario", error);
@@ -58,21 +60,19 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
 
       <section className="grid cols-4" style={{ marginBottom: 18 }}>
         <article className="card">
-          <p className="muted">Productos</p>
+          <p className="muted">Productos revisados</p>
           <p className="metric-value">{summary.totalProducts}</p>
         </article>
         <article className="card">
-          <p className="muted">Con diferencias</p>
+          <p className="muted">Productos con diferencias</p>
           <p className="metric-value">{summary.productsWithDifferences}</p>
         </article>
-        <article className="card">
-          <p className="muted">Positivas</p>
-          <p className="metric-value">{summary.positiveDifferences}</p>
-        </article>
-        <article className="card">
-          <p className="muted">Negativas</p>
-          <p className="metric-value">{summary.negativeDifferences}</p>
-        </article>
+        {isAdmin ? (
+          <article className="card">
+            <p className="muted">Monto total de perdidas</p>
+            <p className="metric-value">{formatCLP(getInventoryTotalLoss(inventory))}</p>
+          </article>
+        ) : null}
       </section>
 
       <section className="card">
@@ -95,6 +95,12 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
                 <strong>{item.fudoStock}</strong>
                 <span>Comentario</span>
                 <strong>{item.comment || "Sin comentario"}</strong>
+                {isAdmin ? (
+                  <>
+                    <span>Monto pérdida</span>
+                    <strong>{formatCLP(getItemLossAmount(item))}</strong>
+                  </>
+                ) : null}
               </div>
             </article>
           ))}
@@ -110,6 +116,7 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
                 <th>Fisico</th>
                 <th>FUDO</th>
                 <th>Diferencia</th>
+                {isAdmin ? <th>Monto pérdida</th> : null}
                 <th>Comentario</th>
               </tr>
             </thead>
@@ -124,6 +131,7 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
                   <td>
                     <DifferenceBadge value={item.difference} />
                   </td>
+                  {isAdmin ? <td>{formatCLP(getItemLossAmount(item))}</td> : null}
                   <td>{item.comment || "Sin comentario"}</td>
                 </tr>
               ))}
