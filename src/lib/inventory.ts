@@ -78,6 +78,7 @@ export function createInventoryRows(products: Product[]): InventoryItem[] {
     productName: product.name,
     category: product.category,
     categoryId: product.categoryId,
+    productActive: product.active,
     unit: product.unit,
     unitPriceAtTime: product.price,
     lossAmount: 0,

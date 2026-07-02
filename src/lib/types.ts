@@ -34,6 +34,7 @@ export type InventoryItem = {
   productName: string;
   category: string;
   categoryId?: string | null;
+  productActive?: boolean;
   unit: string;
   unitPriceAtTime: number;
   lossAmount: number;

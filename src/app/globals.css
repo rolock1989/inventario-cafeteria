@@ -335,6 +335,23 @@ tr:last-child td {
   color: var(--muted);
 }
 
+.inventory-row-inactive {
+  opacity: 0.72;
+}
+
+.inventory-row-inactive td {
+  background: #f8f3ed;
+}
+
+.mobile-record-card.inventory-row-inactive {
+  background: #f8f3ed;
+}
+
+.mobile-record-card h3 .badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
 .actions {
   display: flex;
   gap: 10px;

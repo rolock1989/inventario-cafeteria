@@ -20,6 +20,47 @@ import { FocusEvent, useEffect, useMemo, useState } from "react";
 type StockField = "physicalStock" | "fudoStock";
 type StockDrafts = Record<string, Partial<Record<StockField, string>>>;
 
+function normalizeProductName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function hydrateDraftRows(draftItems: InventoryItem[], activeProducts: Product[], allProducts: Product[]) {
+  const productsById = new Map(allProducts.map((product) => [product.id, product]));
+  const draftProductIds = new Set(draftItems.map((item) => item.productId).filter(Boolean));
+  const draftProductNames = new Set(draftItems.map((item) => normalizeProductName(item.productName)));
+
+  const hydratedRows = draftItems.map((item) => {
+    const product = productsById.get(item.productId);
+
+    return {
+      ...item,
+      categoryId: product?.categoryId ?? item.categoryId ?? null,
+      productActive: product?.active ?? item.productActive ?? false
+    };
+  });
+
+  const newProductRows = createInventoryRows(
+    activeProducts.filter(
+      (product) => !draftProductIds.has(product.id) && !draftProductNames.has(normalizeProductName(product.name))
+    )
+  );
+
+  return {
+    rows: [...hydratedRows, ...newProductRows],
+    addedProductsCount: newProductRows.length
+  };
+}
+
+function isUnavailableEmptyProduct(row: InventoryItem) {
+  return (
+    row.productActive === false &&
+    row.physicalStock === 0 &&
+    row.fudoStock === 0 &&
+    row.difference === 0 &&
+    !row.comment?.trim()
+  );
+}
+
 export default function InventoryPage() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [rows, setRows] = useState<InventoryItem[]>([]);
@@ -32,6 +73,7 @@ export default function InventoryPage() {
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftNoticeVisible, setDraftNoticeVisible] = useState(false);
+  const [draftMergeMessage, setDraftMergeMessage] = useState("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [stockDrafts, setStockDrafts] = useState<StockDrafts>({});
   const isAdmin = currentUser?.role === "admin";
@@ -41,23 +83,36 @@ export default function InventoryPage() {
       try {
         const [user, products, loadedCategories] = await Promise.all([
           loadCurrentUser(),
-          listProducts({ activeOnly: true }),
+          listProducts(),
           listCategories({ activeOnly: true })
         ]);
+        const activeProducts = products.filter((product) => product.active);
         const draft = await getActiveDraftInventory(user.id);
-        const emptyRows = createInventoryRows(products);
+        const emptyRows = createInventoryRows(activeProducts);
 
         setCurrentUser(user);
         setCatalogRows(emptyRows);
         setCategories(loadedCategories);
 
         if (draft) {
+          const hydratedDraft = hydrateDraftRows(draft.items, activeProducts, products);
+
           setDraftId(draft.id);
-          setRows(hydrateDraftRows(draft.items, products));
+          setRows(hydratedDraft.rows);
           setDraftNoticeVisible(true);
-          setStatus("Tienes un borrador pendiente. Puedes continuar o descartarlo.");
+          setDraftMergeMessage(
+            hydratedDraft.addedProductsCount > 0
+              ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador.`
+              : ""
+          );
+          setStatus(
+            hydratedDraft.addedProductsCount > 0
+              ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador.`
+              : "Tienes un borrador pendiente. Puedes continuar o descartarlo."
+          );
         } else {
           setRows(emptyRows);
+          setDraftMergeMessage("");
           setStatus(`Inventario de ${user.name}`);
         }
 
@@ -106,17 +161,6 @@ export default function InventoryPage() {
     }),
     [visibleRows]
   );
-
-  function hydrateDraftRows(draftItems: InventoryItem[], products: Product[]) {
-    return draftItems.map((item) => {
-      const product = products.find((currentProduct) => currentProduct.id === item.productId);
-
-      return {
-        ...item,
-        categoryId: product?.categoryId ?? item.categoryId ?? null
-      };
-    });
-  }
 
   function acceptsDecimalStock(unit: string) {
     const normalizedUnit = unit.trim().toLowerCase();
@@ -256,6 +300,7 @@ export default function InventoryPage() {
       const savedDraftId = await saveDraftInventoryRecord(currentUser, rows, draftId ?? undefined);
       setDraftId(savedDraftId);
       setDraftNoticeVisible(false);
+      setDraftMergeMessage("");
       setHasUnsavedChanges(false);
       setStatus("Borrador guardado correctamente.");
     } catch (error) {
@@ -270,6 +315,7 @@ export default function InventoryPage() {
     if (!draftId) {
       setRows(catalogRows);
       setDraftNoticeVisible(false);
+      setDraftMergeMessage("");
       setHasUnsavedChanges(false);
       setStatus("Borrador descartado.");
       return;
@@ -287,6 +333,7 @@ export default function InventoryPage() {
       setRows(catalogRows);
       setStockDrafts({});
       setDraftNoticeVisible(false);
+      setDraftMergeMessage("");
       setHasUnsavedChanges(false);
       setStatus("Borrador descartado.");
     } catch (error) {
@@ -297,6 +344,7 @@ export default function InventoryPage() {
 
   function continueDraft() {
     setDraftNoticeVisible(false);
+    setDraftMergeMessage("");
     setStatus("Continuando borrador pendiente.");
   }
 
@@ -332,6 +380,7 @@ export default function InventoryPage() {
       setStockDrafts({});
       setDraftId(null);
       setDraftNoticeVisible(false);
+      setDraftMergeMessage("");
       setHasUnsavedChanges(false);
       setStatus("Inventario enviado y guardado correctamente.");
     } catch (error) {
@@ -357,6 +406,7 @@ export default function InventoryPage() {
             <div>
               <h2>Borrador pendiente</h2>
               <p className="muted">Tienes un borrador pendiente. Puedes continuar o descartarlo.</p>
+              {draftMergeMessage ? <p className="muted">{draftMergeMessage}</p> : null}
             </div>
             <div className="actions">
               <button className="btn secondary" onClick={continueDraft} type="button">
@@ -416,10 +466,12 @@ export default function InventoryPage() {
 
         <div className="mobile-card-list inventory-mobile-list">
           {visibleRows.map((row) => (
-            <article className="mobile-record-card" key={row.id}>
+            <article className={`mobile-record-card ${isUnavailableEmptyProduct(row) ? "inventory-row-inactive" : ""}`} key={row.id}>
               <div className="mobile-record-header">
                 <div>
-                  <h3>{row.productName}</h3>
+                  <h3>
+                    {row.productName} {row.productActive === false ? <span className="badge neutral">Inactivo</span> : null}
+                  </h3>
                   <p className="muted">{row.category}</p>
                 </div>
                 <DifferenceBadge value={row.difference} />
@@ -495,8 +547,10 @@ export default function InventoryPage() {
             </thead>
             <tbody>
               {visibleRows.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.productName}</td>
+                <tr className={isUnavailableEmptyProduct(row) ? "inventory-row-inactive" : undefined} key={row.id}>
+                  <td>
+                    {row.productName} {row.productActive === false ? <span className="badge neutral">Inactivo</span> : null}
+                  </td>
                   <td>{row.category}</td>
                   <td>{row.unit}</td>
                   <td>
