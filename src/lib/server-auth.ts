@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
-export async function requireAdminRequest(request: NextRequest) {
+export async function requireAuthenticatedRequest(request: NextRequest) {
   const authorization = request.headers.get("authorization");
   const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
@@ -18,7 +18,7 @@ export async function requireAdminRequest(request: NextRequest) {
 
   const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id,role,active")
+    .select("id,name,email,role,active")
     .eq("id", authData.user.id)
     .single();
 
@@ -30,9 +30,15 @@ export async function requireAdminRequest(request: NextRequest) {
     throw new Error("Tu usuario esta inactivo.");
   }
 
+  return { admin, authUser: authData.user, profile };
+}
+
+export async function requireAdminRequest(request: NextRequest) {
+  const { admin, authUser, profile } = await requireAuthenticatedRequest(request);
+
   if (profile.role !== "admin") {
     throw new Error("No tienes permisos de administrador.");
   }
 
-  return { admin, authUser: authData.user, profile };
+  return { admin, authUser, profile };
 }

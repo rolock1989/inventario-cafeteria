@@ -494,6 +494,7 @@ export async function listInventories() {
     .select(
       "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
     )
+    .eq("status", "submitted")
     .order("submitted_at", { ascending: false });
 
   if (error) {
@@ -501,6 +502,29 @@ export async function listInventories() {
   }
 
   return (data as InventorySessionRow[]).map(mapInventory);
+}
+
+export async function getActiveDraftInventory(userId: string) {
+  if (!usingSupabase()) {
+    return undefined;
+  }
+
+  const { data, error } = await requireSupabase()
+    .from("inventory_sessions")
+    .select(
+      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
+    )
+    .eq("status", "draft")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`No se pudo cargar el borrador: ${error.message}`);
+  }
+
+  return data ? mapInventory(data as InventorySessionRow) : undefined;
 }
 
 export async function getInventoryRecord(id: string) {
@@ -514,6 +538,7 @@ export async function getInventoryRecord(id: string) {
       "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
     )
     .eq("id", id)
+    .eq("status", "submitted")
     .single();
 
   if (error) {
@@ -533,6 +558,59 @@ export async function deleteInventoryRecord(id: string) {
 
   if (!response.ok) {
     throw new Error(`No se pudo eliminar el inventario: ${await parseApiError(response)}`);
+  }
+}
+
+export async function saveDraftInventoryRecord(user: AppUser, items: InventoryItem[], draftId?: string) {
+  requirePersistence();
+
+  const response = await fetch("/api/inventories/draft", {
+    method: "POST",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify({
+      draftId,
+      shift: user.shift || "Sin turno",
+      items
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo guardar el borrador: ${await parseApiError(response)}`);
+  }
+
+  const data = await response.json();
+  return data.draftId as string;
+}
+
+export async function submitDraftInventoryRecord(user: AppUser, draftId: string, items: InventoryItem[]) {
+  requirePersistence();
+
+  const response = await fetch("/api/inventories/draft", {
+    method: "PATCH",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify({
+      draftId,
+      shift: user.shift || "Sin turno",
+      items
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo enviar el borrador: ${await parseApiError(response)}`);
+  }
+}
+
+export async function discardDraftInventoryRecord(draftId: string) {
+  requirePersistence();
+
+  const response = await fetch("/api/inventories/draft", {
+    method: "DELETE",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify({ draftId })
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo descartar el borrador: ${await parseApiError(response)}`);
   }
 }
 

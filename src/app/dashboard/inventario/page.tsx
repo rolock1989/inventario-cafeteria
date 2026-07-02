@@ -3,8 +3,17 @@
 import { Save, Send } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { createInventoryRows } from "@/lib/inventory";
-import { loadCurrentUser, listCategories, listProducts, submitInventoryRecord } from "@/lib/repositories";
-import { AppUser, Category, InventoryItem } from "@/lib/types";
+import {
+  discardDraftInventoryRecord,
+  getActiveDraftInventory,
+  loadCurrentUser,
+  listCategories,
+  listProducts,
+  saveDraftInventoryRecord,
+  submitDraftInventoryRecord,
+  submitInventoryRecord
+} from "@/lib/repositories";
+import { AppUser, Category, InventoryItem, Product } from "@/lib/types";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { FocusEvent, useEffect, useMemo, useState } from "react";
 
@@ -14,11 +23,16 @@ type StockDrafts = Record<string, Partial<Record<StockField, string>>>;
 export default function InventoryPage() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [rows, setRows] = useState<InventoryItem[]>([]);
+  const [catalogRows, setCatalogRows] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [status, setStatus] = useState("Cargando inventario...");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todas");
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftNoticeVisible, setDraftNoticeVisible] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [stockDrafts, setStockDrafts] = useState<StockDrafts>({});
   const isAdmin = currentUser?.role === "admin";
 
@@ -30,10 +44,24 @@ export default function InventoryPage() {
           listProducts({ activeOnly: true }),
           listCategories({ activeOnly: true })
         ]);
+        const draft = await getActiveDraftInventory(user.id);
+        const emptyRows = createInventoryRows(products);
+
         setCurrentUser(user);
-        setRows(createInventoryRows(products));
+        setCatalogRows(emptyRows);
         setCategories(loadedCategories);
-        setStatus(`Inventario de ${user.name}`);
+
+        if (draft) {
+          setDraftId(draft.id);
+          setRows(hydrateDraftRows(draft.items, products));
+          setDraftNoticeVisible(true);
+          setStatus("Tienes un borrador pendiente. Puedes continuar o descartarlo.");
+        } else {
+          setRows(emptyRows);
+          setStatus(`Inventario de ${user.name}`);
+        }
+
+        setHasUnsavedChanges(false);
       } catch (error) {
         console.error("Error al cargar inventario", error);
         setStatus(error instanceof Error ? error.message : "No se pudo cargar el inventario.");
@@ -42,6 +70,20 @@ export default function InventoryPage() {
 
     loadInventoryData();
   }, []);
+
+  useEffect(() => {
+    function warnBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasUnsavedChanges) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const visibleRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -64,6 +106,17 @@ export default function InventoryPage() {
     }),
     [visibleRows]
   );
+
+  function hydrateDraftRows(draftItems: InventoryItem[], products: Product[]) {
+    return draftItems.map((item) => {
+      const product = products.find((currentProduct) => currentProduct.id === item.productId);
+
+      return {
+        ...item,
+        categoryId: product?.categoryId ?? item.categoryId ?? null
+      };
+    });
+  }
 
   function acceptsDecimalStock(unit: string) {
     const normalizedUnit = unit.trim().toLowerCase();
@@ -164,6 +217,7 @@ export default function InventoryPage() {
         };
       })
     );
+    setHasUnsavedChanges(true);
   }
 
   function updateRow(id: string, field: "comment", value: string) {
@@ -188,10 +242,62 @@ export default function InventoryPage() {
         };
       })
     );
+    setHasUnsavedChanges(true);
   }
 
-  function saveDraft() {
-    setStatus("Borrador guardado en esta pantalla. El guardado persistente de borradores queda preparado para una siguiente etapa.");
+  async function saveDraft() {
+    if (!currentUser) {
+      setStatus("No hay usuario activo para guardar el borrador.");
+      return;
+    }
+
+    try {
+      setSavingDraft(true);
+      const savedDraftId = await saveDraftInventoryRecord(currentUser, rows, draftId ?? undefined);
+      setDraftId(savedDraftId);
+      setDraftNoticeVisible(false);
+      setHasUnsavedChanges(false);
+      setStatus("Borrador guardado correctamente.");
+    } catch (error) {
+      console.error("Error al guardar borrador", error);
+      setStatus(error instanceof Error ? error.message : "No se pudo guardar el borrador.");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  async function discardDraft() {
+    if (!draftId) {
+      setRows(catalogRows);
+      setDraftNoticeVisible(false);
+      setHasUnsavedChanges(false);
+      setStatus("Borrador descartado.");
+      return;
+    }
+
+    const confirmed = window.confirm("Descartar este borrador?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await discardDraftInventoryRecord(draftId);
+      setDraftId(null);
+      setRows(catalogRows);
+      setStockDrafts({});
+      setDraftNoticeVisible(false);
+      setHasUnsavedChanges(false);
+      setStatus("Borrador descartado.");
+    } catch (error) {
+      console.error("Error al descartar borrador", error);
+      setStatus(error instanceof Error ? error.message : "No se pudo descartar el borrador.");
+    }
+  }
+
+  function continueDraft() {
+    setDraftNoticeVisible(false);
+    setStatus("Continuando borrador pendiente.");
   }
 
   async function submitInventory() {
@@ -207,7 +313,12 @@ export default function InventoryPage() {
 
     try {
       setSubmitting(true);
-      await submitInventoryRecord(currentUser, rows);
+      if (draftId) {
+        await submitDraftInventoryRecord(currentUser, draftId, rows);
+      } else {
+        await submitInventoryRecord(currentUser, rows);
+      }
+
       setRows((currentRows) =>
         currentRows.map((row) => ({
           ...row,
@@ -219,6 +330,9 @@ export default function InventoryPage() {
         }))
       );
       setStockDrafts({});
+      setDraftId(null);
+      setDraftNoticeVisible(false);
+      setHasUnsavedChanges(false);
       setStatus("Inventario enviado y guardado correctamente.");
     } catch (error) {
       console.error("Error al enviar inventario", error);
@@ -237,6 +351,25 @@ export default function InventoryPage() {
         action={<span className="badge neutral">{status}</span>}
       />
 
+      {draftNoticeVisible ? (
+        <section className="card" style={{ marginBottom: 18 }}>
+          <div className="section-title">
+            <div>
+              <h2>Borrador pendiente</h2>
+              <p className="muted">Tienes un borrador pendiente. Puedes continuar o descartarlo.</p>
+            </div>
+            <div className="actions">
+              <button className="btn secondary" onClick={continueDraft} type="button">
+                Continuar borrador
+              </button>
+              <button className="btn ghost" onClick={discardDraft} type="button">
+                Descartar borrador
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="card">
         <div className="section-title">
           <div>
@@ -246,11 +379,11 @@ export default function InventoryPage() {
             </p>
           </div>
           <div className="actions">
-            <button className="btn secondary" disabled={submitting} onClick={saveDraft} type="button">
+            <button className="btn secondary" disabled={submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
               <Save size={18} />
-              Guardar borrador
+              {savingDraft ? "Guardando..." : "Guardar borrador"}
             </button>
-            <button className="btn" disabled={submitting || rows.length === 0} onClick={submitInventory} type="button">
+            <button className="btn" disabled={submitting || savingDraft || rows.length === 0} onClick={submitInventory} type="button">
               <Send size={18} />
               Enviar inventario
             </button>
