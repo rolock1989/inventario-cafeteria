@@ -6,13 +6,37 @@ import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { formatCLP, formatDateTime, getInventoryTotalLoss, getItemLossAmount, summarizeInventory } from "@/lib/inventory";
 import { getInventoryRecord, loadCurrentUser } from "@/lib/repositories";
-import { InventoryRecord } from "@/lib/types";
-import { useEffect, useState } from "react";
+import { InventoryItem, InventoryRecord } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+
+type IncidenceFilter = "todos" | "diferencias" | "faltantes" | "sobrantes" | "sin-diferencias";
+
+function matchesIncidenceFilter(item: InventoryItem, filter: IncidenceFilter) {
+  if (filter === "diferencias") {
+    return item.difference !== 0;
+  }
+
+  if (filter === "faltantes") {
+    return item.physicalStock < item.fudoStock;
+  }
+
+  if (filter === "sobrantes") {
+    return item.physicalStock > item.fudoStock;
+  }
+
+  if (filter === "sin-diferencias") {
+    return item.difference === 0;
+  }
+
+  return true;
+}
 
 export default function InventoryDetailPage({ params }: { params: { id: string } }) {
   const [inventory, setInventory] = useState<InventoryRecord | null>(null);
   const [message, setMessage] = useState("Cargando detalle...");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("todas");
+  const [incidenceFilter, setIncidenceFilter] = useState<IncidenceFilter>("todos");
 
   useEffect(() => {
     async function loadInventory() {
@@ -29,6 +53,21 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
 
     loadInventory();
   }, [params.id]);
+
+  const inventoryItems = useMemo(() => inventory?.items ?? [], [inventory]);
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(inventoryItems.map((item) => item.category || "Sin categoria"))).sort((a, b) => a.localeCompare(b, "es")),
+    [inventoryItems]
+  );
+  const filteredItems = useMemo(
+    () =>
+      inventoryItems.filter((item) => {
+        const itemCategory = item.category || "Sin categoria";
+        const matchesCategory = categoryFilter === "todas" || itemCategory === categoryFilter;
+        return matchesCategory && matchesIncidenceFilter(item, incidenceFilter);
+      }),
+    [categoryFilter, incidenceFilter, inventoryItems]
+  );
 
   if (!inventory) {
     return (
@@ -76,8 +115,41 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
       </section>
 
       <section className="card">
+        <div className="section-title">
+          <div>
+            <h2>Productos</h2>
+            <p className="muted">
+              Mostrando {filteredItems.length} de {inventory.items.length} productos.
+            </p>
+          </div>
+        </div>
+
+        <div className="form-grid" style={{ marginBottom: 18 }}>
+          <label className="field">
+            Categoria
+            <select onChange={(event) => setCategoryFilter(event.target.value)} value={categoryFilter}>
+              <option value="todas">Todas las categorias</option>
+              {categoryOptions.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Incidencia
+            <select onChange={(event) => setIncidenceFilter(event.target.value as IncidenceFilter)} value={incidenceFilter}>
+              <option value="todos">Todos</option>
+              <option value="diferencias">Con diferencias</option>
+              <option value="faltantes">Faltantes</option>
+              <option value="sobrantes">Sobrantes</option>
+              <option value="sin-diferencias">Sin diferencias</option>
+            </select>
+          </label>
+        </div>
+
         <div className="mobile-card-list">
-          {inventory.items.map((item) => (
+          {filteredItems.map((item) => (
             <article className="mobile-record-card" key={item.id}>
               <div className="mobile-record-header">
                 <div>
@@ -104,6 +176,11 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
               </div>
             </article>
           ))}
+          {filteredItems.length === 0 ? (
+            <article className="mobile-record-card">
+              <p className="muted">No hay productos que coincidan con los filtros seleccionados.</p>
+            </article>
+          ) : null}
         </div>
 
         <div className="table-wrap desktop-table">
@@ -121,7 +198,7 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
               </tr>
             </thead>
             <tbody>
-              {inventory.items.map((item) => (
+              {filteredItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.productName}</td>
                   <td>{item.category}</td>
@@ -135,6 +212,13 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
                   <td>{item.comment || "Sin comentario"}</td>
                 </tr>
               ))}
+              {filteredItems.length === 0 ? (
+                <tr>
+                  <td className="muted" colSpan={isAdmin ? 8 : 7}>
+                    No hay productos que coincidan con los filtros seleccionados.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

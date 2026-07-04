@@ -1,11 +1,36 @@
-import { InventoryRecord } from "@/lib/types";
+import { InventoryItem, InventoryRecord } from "@/lib/types";
 import { formatDateTime, getItemLossAmount } from "@/lib/inventory";
+
+function getIncidenceType(item: InventoryItem) {
+  if (item.physicalStock < item.fudoStock) {
+    return "Faltante";
+  }
+
+  if (item.physicalStock > item.fudoStock) {
+    return "Sobrante";
+  }
+
+  return "";
+}
 
 export async function downloadInventoriesExcel(inventories: InventoryRecord[], fileName: string, includeLoss = false) {
   const xlsx = await import("xlsx");
+  const headers = [
+    "Fecha del inventario",
+    "Usuario/turno",
+    "Producto",
+    "Categoria",
+    "Unidad de medida",
+    "Stock fisico",
+    "Stock FUDO",
+    "Diferencia",
+    "Tipo de incidencia",
+    "Comentario",
+    ...(includeLoss ? ["Monto pérdida"] : [])
+  ];
 
   const rows = inventories.flatMap((inventory) =>
-    inventory.items.map((item) => {
+    inventory.items.filter((item) => item.difference !== 0).map((item) => {
       const row: Record<string, string | number> = {
         "Fecha del inventario": formatDateTime(inventory.submittedAt ?? inventory.createdAt),
         "Usuario/turno": `${inventory.userName} / ${inventory.shift}`,
@@ -15,6 +40,7 @@ export async function downloadInventoriesExcel(inventories: InventoryRecord[], f
         "Stock fisico": item.physicalStock,
         "Stock FUDO": item.fudoStock,
         Diferencia: item.difference,
+        "Tipo de incidencia": getIncidenceType(item),
         Comentario: item.comment ?? ""
       };
 
@@ -26,7 +52,7 @@ export async function downloadInventoriesExcel(inventories: InventoryRecord[], f
     })
   );
 
-  const worksheet = xlsx.utils.json_to_sheet(rows);
+  const worksheet = xlsx.utils.json_to_sheet(rows, { header: headers });
   worksheet["!cols"] = [
     { wch: 24 },
     { wch: 32 },
@@ -36,7 +62,9 @@ export async function downloadInventoriesExcel(inventories: InventoryRecord[], f
     { wch: 14 },
     { wch: 14 },
     { wch: 12 },
-    { wch: 36 }
+    { wch: 18 },
+    { wch: 36 },
+    ...(includeLoss ? [{ wch: 16 }] : [])
   ];
 
   const workbook = xlsx.utils.book_new();
