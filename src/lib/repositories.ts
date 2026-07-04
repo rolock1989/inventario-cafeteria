@@ -1,7 +1,7 @@
 import { mockInventories, mockProducts } from "@/lib/mock-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { AppUser, Category, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
-import { assertActiveUser, getAuthSession } from "@/lib/auth";
+import { assertActiveUser, getAuthSession, getFreshAuthSession } from "@/lib/auth";
 
 type ProductRow = {
   id: string;
@@ -110,10 +110,10 @@ function mapProfile(row: ProfileRow): AppUser {
 }
 
 async function getAuthorizationHeaders() {
-  const session = await getAuthSession();
+  const session = await getFreshAuthSession();
 
   if (!session?.access_token) {
-    throw new Error("No hay sesion activa.");
+    throw new Error("Debes iniciar sesion nuevamente.");
   }
 
   return {
