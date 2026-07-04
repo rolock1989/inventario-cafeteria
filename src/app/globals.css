@@ -129,6 +129,7 @@ button {
 
 .mobile-menu-button,
 .mobile-logout,
+.mobile-menu-user,
 .mobile-card-list {
   display: none;
 }
@@ -352,6 +353,10 @@ tr:last-child td {
   vertical-align: middle;
 }
 
+.mobile-inventory-workspace {
+  display: none;
+}
+
 .actions {
   display: flex;
   gap: 10px;
@@ -491,9 +496,22 @@ textarea {
     color: #fff8ee;
   }
 
+  .mobile-menu-user {
+    display: grid;
+    gap: 2px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 8px;
+    color: #fff8ee;
+  }
+
+  .mobile-menu-user span {
+    color: #dfcfbd;
+    font-size: 0.86rem;
+  }
+
   .sidebar-footer {
-    display: block;
-    margin-top: 0;
+    display: none;
   }
 
   .main {
@@ -516,9 +534,95 @@ textarea {
     display: none;
   }
 
+  .desktop-inventory-filters,
+  .desktop-inventory-actions {
+    display: none;
+  }
+
   .mobile-card-list {
     display: grid;
     gap: 12px;
+  }
+
+  .mobile-inventory-workspace {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-inventory-toolbar {
+    position: sticky;
+    top: 76px;
+    z-index: 6;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px;
+    margin: -2px -2px 2px;
+    background: rgba(255, 250, 242, 0.98);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 10px 24px rgba(54, 38, 30, 0.08);
+  }
+
+  .mobile-inventory-toolbar .field {
+    gap: 4px;
+    font-size: 0.78rem;
+  }
+
+  .mobile-inventory-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 7;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px 0 0;
+    background: linear-gradient(rgba(246, 242, 234, 0), var(--surface-strong) 24%);
+  }
+
+  .inventory-compact-row {
+    padding: 10px;
+  }
+
+  .inventory-compact-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: start;
+    margin-bottom: 8px;
+  }
+
+  .inventory-compact-title {
+    min-width: 0;
+  }
+
+  .inventory-compact-title h3 {
+    margin: 0 0 2px;
+    font-size: 0.96rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .inventory-compact-title p {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.2;
+  }
+
+  .inventory-compact-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: end;
+  }
+
+  .inventory-compact-fields .field {
+    gap: 4px;
+    font-size: 0.78rem;
+  }
+
+  .inventory-compact-comment {
+    margin-top: -2px;
   }
 
   table {
@@ -543,15 +647,6 @@ textarea {
 
   .sidebar {
     padding: 12px;
-  }
-
-  .sidebar-footer {
-    font-size: 0.85rem;
-    padding: 12px;
-  }
-
-  .sidebar-footer .logout-button {
-    display: flex;
   }
 
   .main {
@@ -583,6 +678,10 @@ textarea {
     padding: 14px;
   }
 
+  .inventory-entry-card {
+    padding: 10px;
+  }
+
   .metric {
     min-height: 92px;
   }
@@ -596,6 +695,10 @@ textarea {
     display: grid;
     grid-template-columns: 1fr;
     width: 100%;
+  }
+
+  .desktop-inventory-actions {
+    display: none;
   }
 
   .btn,
@@ -612,12 +715,42 @@ textarea {
   }
 
   .inventory-mobile-list {
-    gap: 14px;
+    gap: 8px;
   }
 
-  .mobile-inventory-fields input {
-    min-height: 52px;
-    font-size: 1.05rem;
+  .mobile-inventory-toolbar {
+    top: 66px;
+    margin-inline: -4px;
+    padding: 8px;
+  }
+
+  .mobile-inventory-toolbar input,
+  .mobile-inventory-toolbar select {
+    min-height: 44px;
+    font-size: 0.92rem;
+    padding: 7px 8px;
+  }
+
+  .mobile-inventory-actions .btn {
+    min-height: 44px;
+    font-size: 0.9rem;
+    padding: 0 8px;
+  }
+
+  .inventory-compact-fields input {
+    min-height: 44px;
+    font-size: 1rem;
+    padding: 7px 8px;
+  }
+
+  .inventory-compact-comment input {
+    font-size: 0.95rem;
+  }
+
+  .inventory-compact-row .badge {
+    min-height: 24px;
+    padding: 3px 8px;
+    font-size: 0.78rem;
   }
 
   .mobile-full-button {

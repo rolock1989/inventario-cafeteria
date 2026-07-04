@@ -15,10 +15,11 @@ import {
 } from "@/lib/repositories";
 import { AppUser, Category, InventoryItem, Product } from "@/lib/types";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
-import { FocusEvent, useEffect, useMemo, useState } from "react";
+import { FocusEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type StockField = "physicalStock" | "fudoStock";
 type StockDrafts = Record<string, Partial<Record<StockField, string>>>;
+type MobileInventoryFilter = "todos" | "pendientes" | "diferencias";
 
 function normalizeProductName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -62,6 +63,7 @@ function isUnavailableEmptyProduct(row: InventoryItem) {
 }
 
 export default function InventoryPage() {
+  const stockInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [rows, setRows] = useState<InventoryItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<InventoryItem[]>([]);
@@ -69,6 +71,7 @@ export default function InventoryPage() {
   const [status, setStatus] = useState("Cargando inventario...");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todas");
+  const [mobileInventoryFilter, setMobileInventoryFilter] = useState<MobileInventoryFilter>("todos");
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -161,6 +164,21 @@ export default function InventoryPage() {
     }),
     [visibleRows]
   );
+  const mobileVisibleRows = useMemo(
+    () =>
+      visibleRows.filter((row) => {
+        if (mobileInventoryFilter === "pendientes") {
+          return row.physicalStock === 0 && row.fudoStock === 0 && row.difference === 0 && !row.comment?.trim();
+        }
+
+        if (mobileInventoryFilter === "diferencias") {
+          return row.difference !== 0;
+        }
+
+        return true;
+      }),
+    [mobileInventoryFilter, visibleRows]
+  );
 
   function acceptsDecimalStock(unit: string) {
     const normalizedUnit = unit.trim().toLowerCase();
@@ -226,6 +244,39 @@ export default function InventoryPage() {
 
       return nextDrafts;
     });
+  }
+
+  function stockInputKey(rowId: string, field: StockField) {
+    return `${rowId}-${field}`;
+  }
+
+  function focusStockInput(rowId: string, field: StockField) {
+    window.requestAnimationFrame(() => {
+      stockInputRefs.current[stockInputKey(rowId, field)]?.focus();
+      stockInputRefs.current[stockInputKey(rowId, field)]?.select();
+    });
+  }
+
+  function handleMobileStockKeyDown(event: KeyboardEvent<HTMLInputElement>, row: InventoryItem, rowIndex: number, field: StockField) {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (field === "fudoStock") {
+      focusStockInput(row.id, "physicalStock");
+      return;
+    }
+
+    const nextRow = mobileVisibleRows[rowIndex + 1];
+
+    if (nextRow) {
+      focusStockInput(nextRow.id, "fudoStock");
+      return;
+    }
+
+    event.currentTarget.blur();
   }
 
   function updateStockRow(row: InventoryItem, field: StockField, value: string) {
@@ -420,7 +471,7 @@ export default function InventoryPage() {
         </section>
       ) : null}
 
-      <section className="card">
+      <section className="card inventory-entry-card">
         <div className="section-title">
           <div>
             <h2>Productos activos</h2>
@@ -428,7 +479,7 @@ export default function InventoryPage() {
               {totals.products} productos visibles, {totals.differences} con diferencias.
             </p>
           </div>
-          <div className="actions">
+          <div className="actions desktop-inventory-actions">
             <button className="btn secondary" disabled={submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
               <Save size={18} />
               {savingDraft ? "Guardando..." : "Guardar borrador"}
@@ -440,7 +491,7 @@ export default function InventoryPage() {
           </div>
         </div>
 
-        <div className="form-grid" style={{ marginBottom: 18 }}>
+        <div className="form-grid desktop-inventory-filters" style={{ marginBottom: 18 }}>
           <label className="field">
             Buscar producto
             <input
@@ -464,71 +515,117 @@ export default function InventoryPage() {
           </label>
         </div>
 
-        <div className="mobile-card-list inventory-mobile-list">
-          {visibleRows.map((row) => (
-            <article className={`mobile-record-card ${isUnavailableEmptyProduct(row) ? "inventory-row-inactive" : ""}`} key={row.id}>
-              <div className="mobile-record-header">
-                <div>
-                  <h3>
-                    {row.productName} {row.productActive === false ? <span className="badge neutral">Inactivo</span> : null}
-                  </h3>
-                  <p className="muted">{row.category}</p>
+        <div className="mobile-inventory-workspace">
+          <div className="mobile-inventory-toolbar">
+            <label className="field">
+              Buscar
+              <input
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Producto"
+                type="search"
+                value={searchTerm}
+              />
+            </label>
+            <label className="field">
+              Categoria
+              <select onChange={(event) => setCategoryFilter(event.target.value)} value={categoryFilter}>
+                <option value="todas">Todas las categorias</option>
+                <option value="sin-categoria">Sin categoria</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field full">
+              Estado
+              <select
+                onChange={(event) => setMobileInventoryFilter(event.target.value as MobileInventoryFilter)}
+                value={mobileInventoryFilter}
+              >
+                <option value="todos">Todos</option>
+                <option value="pendientes">Pendientes</option>
+                <option value="diferencias">Con diferencias</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="mobile-inventory-actions">
+            <button className="btn secondary" disabled={submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
+              <Save size={18} />
+              {savingDraft ? "Guardando..." : "Guardar borrador"}
+            </button>
+            <button className="btn" disabled={submitting || savingDraft || rows.length === 0} onClick={submitInventory} type="button">
+              <Send size={18} />
+              Enviar inventario
+            </button>
+          </div>
+
+          <div className="mobile-card-list inventory-mobile-list">
+            {mobileVisibleRows.map((row, rowIndex) => (
+              <article className={`mobile-record-card inventory-compact-row ${isUnavailableEmptyProduct(row) ? "inventory-row-inactive" : ""}`} key={row.id}>
+                <div className="inventory-compact-header">
+                  <div className="inventory-compact-title">
+                    <h3>
+                      {row.productName} {row.productActive === false ? <span className="badge neutral">Inactivo</span> : null}
+                    </h3>
+                    <p className="muted">{row.category}</p>
+                  </div>
+                  <DifferenceBadge value={row.difference} />
                 </div>
-                <DifferenceBadge value={row.difference} />
-              </div>
-              <div className="mobile-meta-grid">
-                <span>Unidad</span>
-                <strong>{row.unit}</strong>
-                {isAdmin ? (
-                  <>
-                    <span>Monto pérdida</span>
-                    <strong>${row.lossAmount.toLocaleString("es-CL")}</strong>
-                  </>
-                ) : null}
-              </div>
-              <div className="form-grid mobile-inventory-fields">
-                <label className="field">
-                  Stock FUDO
-                  <input
-                    min="0"
-                    onBlur={() => handleStockBlur(row.id, "fudoStock")}
-                    onChange={(event) => updateStockRow(row, "fudoStock", event.target.value)}
-                    onFocus={handleStockFocus}
-                    inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
-                    step={acceptsDecimalStock(row.unit) ? "any" : "1"}
-                    type="number"
-                    value={getStockInputValue(row, "fudoStock")}
-                  />
-                </label>
-                <label className="field">
-                  Stock fisico
-                  <input
-                    min="0"
-                    onBlur={() => handleStockBlur(row.id, "physicalStock")}
-                    onChange={(event) => updateStockRow(row, "physicalStock", event.target.value)}
-                    onFocus={handleStockFocus}
-                    inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
-                    step={acceptsDecimalStock(row.unit) ? "any" : "1"}
-                    type="number"
-                    value={getStockInputValue(row, "physicalStock")}
-                  />
-                </label>
-                <label className="field full">
-                  Comentario
-                  <input
-                    onChange={(event) => updateRow(row.id, "comment", event.target.value)}
-                    placeholder="Opcional"
-                    value={row.comment}
-                  />
-                </label>
-              </div>
-            </article>
-          ))}
-          {visibleRows.length === 0 ? (
-            <article className="mobile-record-card">
-              <p className="muted">No hay productos que coincidan con la busqueda o categoria seleccionada.</p>
-            </article>
-          ) : null}
+                <div className="inventory-compact-fields">
+                  <label className="field">
+                    Stock FUDO
+                    <input
+                      min="0"
+                      onBlur={() => handleStockBlur(row.id, "fudoStock")}
+                      onChange={(event) => updateStockRow(row, "fudoStock", event.target.value)}
+                      onFocus={handleStockFocus}
+                      onKeyDown={(event) => handleMobileStockKeyDown(event, row, rowIndex, "fudoStock")}
+                      ref={(input) => {
+                        stockInputRefs.current[stockInputKey(row.id, "fudoStock")] = input;
+                      }}
+                      inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
+                      step={acceptsDecimalStock(row.unit) ? "any" : "1"}
+                      type="number"
+                      value={getStockInputValue(row, "fudoStock")}
+                    />
+                  </label>
+                  <label className="field">
+                    Stock fisico
+                    <input
+                      min="0"
+                      onBlur={() => handleStockBlur(row.id, "physicalStock")}
+                      onChange={(event) => updateStockRow(row, "physicalStock", event.target.value)}
+                      onFocus={handleStockFocus}
+                      onKeyDown={(event) => handleMobileStockKeyDown(event, row, rowIndex, "physicalStock")}
+                      ref={(input) => {
+                        stockInputRefs.current[stockInputKey(row.id, "physicalStock")] = input;
+                      }}
+                      inputMode={acceptsDecimalStock(row.unit) ? "decimal" : "numeric"}
+                      step={acceptsDecimalStock(row.unit) ? "any" : "1"}
+                      type="number"
+                      value={getStockInputValue(row, "physicalStock")}
+                    />
+                  </label>
+                  <label className="field full inventory-compact-comment">
+                    Comentario
+                    <input
+                      onChange={(event) => updateRow(row.id, "comment", event.target.value)}
+                      placeholder="Opcional"
+                      value={row.comment}
+                    />
+                  </label>
+                </div>
+              </article>
+            ))}
+            {mobileVisibleRows.length === 0 ? (
+              <article className="mobile-record-card inventory-compact-row">
+                <p className="muted">No hay productos que coincidan con los filtros seleccionados.</p>
+              </article>
+            ) : null}
+          </div>
         </div>
 
         <div className="table-wrap desktop-table">

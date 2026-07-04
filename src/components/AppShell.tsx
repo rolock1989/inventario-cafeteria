@@ -93,6 +93,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
         <nav className={`nav-list ${menuOpen ? "open" : ""}`} aria-label="Principal">
+          <div className="mobile-menu-user">
+            <strong>{user.name}</strong>
+            <span>{user.role === "admin" ? "Administrador" : "Trabajador"}</span>
+          </div>
           {visibleItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
