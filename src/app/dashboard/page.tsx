@@ -1,19 +1,67 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, ClipboardList, PackageCheck } from "lucide-react";
-import { DifferenceBadge } from "@/components/DifferenceBadge";
+import { CalendarClock, ClipboardList, PackageCheck } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import {
   filterInventoriesByDateRange,
   formatCLP,
-  formatDateForInput,
   formatDateTime,
   getInventoryTotalLoss,
   getItemLossAmount
 } from "@/lib/inventory";
 import { listInventories, loadCurrentUser } from "@/lib/repositories";
-import { InventoryRecord } from "@/lib/types";
+import { InventoryItem, InventoryRecord } from "@/lib/types";
 import { useEffect, useMemo, useState } from "react";
+
+type ProductLossRankingItem = {
+  key: string;
+  position: number;
+  productName: string;
+  category: string;
+  unit: string;
+  missingQuantity: number;
+  totalLoss: number;
+};
+
+function productRankingKey(item: InventoryItem) {
+  return item.productId || `${item.productName.trim().toLowerCase()}-${item.category.trim().toLowerCase()}`;
+}
+
+function formatQuantity(value: number, unit: string) {
+  const formattedValue = new Intl.NumberFormat("es-CL", {
+    maximumFractionDigits: 2
+  }).format(value);
+
+  return `${formattedValue} ${unit}`;
+}
+
+function formatLocalDateForInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatCurrentDateTime(value: Date) {
+  const locale = typeof navigator !== "undefined" ? navigator.language : "es-CL";
+  const date = new Intl.DateTimeFormat(locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  }).format(value);
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(value);
+
+  return {
+    date: date.charAt(0).toUpperCase() + date.slice(1),
+    time: `${time} hrs`
+  };
+}
 
 export default function DashboardPage() {
   const [inventories, setInventories] = useState<InventoryRecord[]>([]);
@@ -21,6 +69,7 @@ export default function DashboardPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [currentDateTime, setCurrentDateTime] = useState(() => new Date());
 
   useEffect(() => {
     async function loadDashboard() {
@@ -31,8 +80,8 @@ export default function DashboardPage() {
 
         if (records.length > 0) {
           const times = records.map((inventory) => new Date(inventory.submittedAt ?? inventory.createdAt).getTime());
-          setStartDate(formatDateForInput(new Date(Math.min(...times))));
-          setEndDate(formatDateForInput(new Date(Math.max(...times))));
+          setStartDate(formatLocalDateForInput(new Date(Math.min(...times))));
+          setEndDate(formatLocalDateForInput(new Date(Math.max(...times))));
         }
 
         setMessage(records.length > 0 ? "Resumen actualizado." : "Aun no hay inventarios enviados.");
@@ -45,38 +94,74 @@ export default function DashboardPage() {
     loadDashboard();
   }, []);
 
-  const latestInventory = inventories[0];
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentDateTime(new Date()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const filteredInventories = useMemo(
     () => filterInventoriesByDateRange(inventories, startDate, endDate),
     [endDate, inventories, startDate]
   );
+  const latestInventory = filteredInventories[0];
+  const hasInventoriesInRange = filteredInventories.length > 0;
+  const formattedCurrentDateTime = useMemo(() => formatCurrentDateTime(currentDateTime), [currentDateTime]);
   const rangeSummary = useMemo(
     () =>
       filteredInventories.reduce(
         (summary, inventory) => ({
           inventories: summary.inventories + 1,
           totalProducts: summary.totalProducts + inventory.items.length,
-          productsWithDifferences:
-            summary.productsWithDifferences + inventory.items.filter((item) => item.difference !== 0).length,
           totalLoss: summary.totalLoss + getInventoryTotalLoss(inventory)
         }),
         {
           inventories: 0,
           totalProducts: 0,
-          productsWithDifferences: 0,
           totalLoss: 0
         }
       ),
     [filteredInventories]
   );
-  const differentItems = useMemo(() => latestInventory?.items.filter((item) => item.difference !== 0) ?? [], [latestInventory]);
-  const topLossItems = useMemo(
+  const productLossRanking = useMemo(
     () =>
-      [...(latestInventory?.items ?? [])]
-        .filter((item) => getItemLossAmount(item) > 0)
-        .sort((a, b) => getItemLossAmount(b) - getItemLossAmount(a))
-        .slice(0, 5),
-    [latestInventory]
+      Array.from(
+        filteredInventories
+          .flatMap((inventory) => inventory.items)
+          .filter((item) => item.physicalStock < item.fudoStock)
+          .reduce<Map<string, ProductLossRankingItem>>((ranking, item) => {
+            const key = productRankingKey(item);
+            const current = ranking.get(key);
+            const missingQuantity = item.fudoStock - item.physicalStock;
+            const totalLoss = getItemLossAmount(item);
+
+            if (!current) {
+              ranking.set(key, {
+                key,
+                position: 0,
+                productName: item.productName,
+                category: item.category,
+                unit: item.unit,
+                missingQuantity,
+                totalLoss
+              });
+              return ranking;
+            }
+
+            ranking.set(key, {
+              ...current,
+              missingQuantity: current.missingQuantity + missingQuantity,
+              totalLoss: current.totalLoss + totalLoss
+            });
+
+            return ranking;
+          }, new Map())
+          .values()
+      )
+        .filter((item) => item.missingQuantity > 0)
+        .sort((a, b) => b.missingQuantity - a.missingQuantity)
+        .slice(0, 10)
+        .map((item, index) => ({ ...item, position: index + 1 })),
+    [filteredInventories]
   );
 
   return (
@@ -99,9 +184,23 @@ export default function DashboardPage() {
             <input onChange={(event) => setEndDate(event.target.value)} type="date" value={endDate} />
           </label>
         </div>
+        {!hasInventoriesInRange ? (
+          <p className="muted" style={{ margin: "12px 0 0" }}>
+            No hay inventarios en este rango de fechas.
+          </p>
+        ) : null}
       </section>
 
       <section className="grid cols-4">
+        <article className="card metric">
+          <div>
+            <p className="muted">{formattedCurrentDateTime.date}</p>
+            <p className="metric-value">{formattedCurrentDateTime.time}</p>
+          </div>
+          <span className="icon-pill">
+            <CalendarClock size={22} />
+          </span>
+        </article>
         <article className="card metric">
           <div>
             <p className="muted">Inventarios</p>
@@ -118,15 +217,6 @@ export default function DashboardPage() {
           </div>
           <span className="icon-pill">
             <PackageCheck size={22} />
-          </span>
-        </article>
-        <article className="card metric">
-          <div>
-            <p className="muted">Con diferencias</p>
-            <p className="metric-value">{rangeSummary.productsWithDifferences}</p>
-          </div>
-          <span className="icon-pill">
-            <AlertTriangle size={22} />
           </span>
         </article>
         {isAdmin ? (
@@ -165,29 +255,40 @@ export default function DashboardPage() {
             <p className="muted">Calculada solo para productos con stock fisico menor al stock FUDO.</p>
           </article>
         ) : null}
+      </section>
 
-        <article className="card">
+      {isAdmin ? (
+        <section className="card" style={{ marginTop: 18 }}>
           <div className="section-title">
             <div>
-              <p className="eyebrow">Productos con diferencia</p>
-              <h2>Revision prioritaria</h2>
+              <p className="eyebrow">Ranking del periodo</p>
+              <h2>Top 10 productos con más faltantes</h2>
+              <p className="muted">
+                Ordenado por cantidad faltante total dentro del rango seleccionado.
+              </p>
             </div>
           </div>
           <div className="mobile-card-list">
-            {differentItems.map((item) => (
-              <article className="mobile-record-card compact" key={item.id}>
+            {productLossRanking.map((item) => (
+              <article className="mobile-record-card compact" key={item.key}>
                 <div className="mobile-record-header">
                   <div>
-                    <h3>{item.productName}</h3>
+                    <h3>{item.position}. {item.productName}</h3>
                     <p className="muted">{item.category}</p>
                   </div>
-                  <DifferenceBadge value={item.difference} />
+                  <span className="badge negative">{formatQuantity(item.missingQuantity, item.unit)}</span>
+                </div>
+                <div className="mobile-meta-grid">
+                  <span>Faltante total</span>
+                  <strong>{formatQuantity(item.missingQuantity, item.unit)}</strong>
+                  <span>Pérdida total</span>
+                  <strong>{formatCLP(item.totalLoss)}</strong>
                 </div>
               </article>
             ))}
-            {differentItems.length === 0 ? (
+            {productLossRanking.length === 0 ? (
               <article className="mobile-record-card compact">
-                <p className="muted">No hay diferencias para mostrar.</p>
+                <p className="muted">No hay faltantes para mostrar en el rango seleccionado.</p>
               </article>
             ) : null}
           </div>
@@ -195,89 +296,35 @@ export default function DashboardPage() {
             <table>
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>Producto</th>
                   <th>Categoria</th>
-                  <th>Diferencia</th>
+                  <th>Faltante total</th>
+                  <th>Pérdida total</th>
                 </tr>
               </thead>
               <tbody>
-                {differentItems.map((item) => (
-                  <tr key={item.id}>
+                {productLossRanking.map((item) => (
+                  <tr key={item.key}>
+                    <td>{item.position}</td>
                     <td>{item.productName}</td>
                     <td>{item.category}</td>
-                    <td>
-                      <DifferenceBadge value={item.difference} />
-                    </td>
+                    <td>{formatQuantity(item.missingQuantity, item.unit)}</td>
+                    <td>{formatCLP(item.totalLoss)}</td>
                   </tr>
                 ))}
-                {differentItems.length === 0 ? (
+                {productLossRanking.length === 0 ? (
                   <tr>
-                    <td className="muted" colSpan={3}>
-                      No hay diferencias para mostrar.
+                    <td className="muted" colSpan={5}>
+                      No hay faltantes para mostrar en el rango seleccionado.
                     </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-        </article>
-
-        {isAdmin ? (
-          <article className="card">
-            <div className="section-title">
-              <div>
-                <p className="eyebrow">Mayor perdida</p>
-                <h2>Productos prioritarios</h2>
-              </div>
-            </div>
-            <div className="mobile-card-list">
-              {topLossItems.map((item) => (
-                <article className="mobile-record-card compact" key={item.id}>
-                  <div className="mobile-record-header">
-                    <div>
-                      <h3>{item.productName}</h3>
-                      <p className="muted">{item.category}</p>
-                    </div>
-                    <span className="badge negative">{formatCLP(getItemLossAmount(item))}</span>
-                  </div>
-                </article>
-              ))}
-              {topLossItems.length === 0 ? (
-                <article className="mobile-record-card compact">
-                  <p className="muted">No hay perdidas para mostrar.</p>
-                </article>
-              ) : null}
-            </div>
-            <div className="table-wrap desktop-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th>Categoria</th>
-                    <th>Monto pérdida</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topLossItems.map((item) => (
-                    <tr key={item.id}>
-                      <td>{item.productName}</td>
-                      <td>{item.category}</td>
-                      <td>{formatCLP(getItemLossAmount(item))}</td>
-                    </tr>
-                  ))}
-                  {topLossItems.length === 0 ? (
-                    <tr>
-                      <td className="muted" colSpan={3}>
-                        No hay perdidas para mostrar.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
     </>
   );
 }
