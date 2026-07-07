@@ -6,6 +6,7 @@ import { createInventoryRows } from "@/lib/inventory";
 import {
   discardDraftInventoryRecord,
   getActiveDraftInventory,
+  listAreas,
   loadCurrentUser,
   listCategories,
   listProducts,
@@ -13,7 +14,7 @@ import {
   submitDraftInventoryRecord,
   submitInventoryRecord
 } from "@/lib/repositories";
-import { AppUser, Category, InventoryItem, Product } from "@/lib/types";
+import { AppUser, Area, Category, InventoryItem, Product } from "@/lib/types";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { FocusEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -65,6 +66,9 @@ function isUnavailableEmptyProduct(row: InventoryItem) {
 export default function InventoryPage() {
   const stockInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState("");
+  const [selectedAreaName, setSelectedAreaName] = useState("");
   const [rows, setRows] = useState<InventoryItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -82,44 +86,68 @@ export default function InventoryPage() {
   const isAdmin = currentUser?.role === "admin";
 
   useEffect(() => {
+    async function loadInventoryForArea(user: AppUser, areaId: string, areaName: string) {
+      const [products, loadedCategories] = await Promise.all([
+        listProducts({ areaId }),
+        listCategories({ activeOnly: true, areaId })
+      ]);
+      const activeProducts = products.filter((product) => product.active);
+      const draft = await getActiveDraftInventory(user.id, areaId);
+      const emptyRows = createInventoryRows(activeProducts);
+
+      setCatalogRows(emptyRows);
+      setCategories(loadedCategories);
+      setSelectedAreaId(areaId);
+      setSelectedAreaName(areaName);
+
+      if (draft) {
+        const hydratedDraft = hydrateDraftRows(draft.items, activeProducts, products);
+
+        setDraftId(draft.id);
+        setRows(hydratedDraft.rows);
+        setDraftNoticeVisible(true);
+        setDraftMergeMessage(
+          hydratedDraft.addedProductsCount > 0
+            ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador.`
+            : ""
+        );
+        setStatus(
+          hydratedDraft.addedProductsCount > 0
+            ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador de ${areaName}.`
+            : `Tienes un borrador pendiente en ${areaName}. Puedes continuar o descartarlo.`
+        );
+      } else {
+        setDraftId(null);
+        setRows(emptyRows);
+        setDraftMergeMessage("");
+        setDraftNoticeVisible(false);
+        setStatus(`Inventario de ${user.name}. Área: ${areaName}`);
+      }
+
+      setStockDrafts({});
+      setHasUnsavedChanges(false);
+    }
+
     async function loadInventoryData() {
       try {
-        const [user, products, loadedCategories] = await Promise.all([
-          loadCurrentUser(),
-          listProducts(),
-          listCategories({ activeOnly: true })
-        ]);
-        const activeProducts = products.filter((product) => product.active);
-        const draft = await getActiveDraftInventory(user.id);
-        const emptyRows = createInventoryRows(activeProducts);
-
+        const user = await loadCurrentUser();
         setCurrentUser(user);
-        setCatalogRows(emptyRows);
-        setCategories(loadedCategories);
 
-        if (draft) {
-          const hydratedDraft = hydrateDraftRows(draft.items, activeProducts, products);
-
-          setDraftId(draft.id);
-          setRows(hydratedDraft.rows);
-          setDraftNoticeVisible(true);
-          setDraftMergeMessage(
-            hydratedDraft.addedProductsCount > 0
-              ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador.`
-              : ""
-          );
-          setStatus(
-            hydratedDraft.addedProductsCount > 0
-              ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador.`
-              : "Tienes un borrador pendiente. Puedes continuar o descartarlo."
-          );
-        } else {
-          setRows(emptyRows);
-          setDraftMergeMessage("");
-          setStatus(`Inventario de ${user.name}`);
+        if (user.role === "admin") {
+          const loadedAreas = await listAreas({ activeOnly: true });
+          setAreas(loadedAreas);
+          setRows([]);
+          setCatalogRows([]);
+          setStatus("Selecciona un área para comenzar el inventario.");
+          return;
         }
 
-        setHasUnsavedChanges(false);
+        if (!user.areaId) {
+          setStatus("Tu usuario no tiene un area asignada.");
+          return;
+        }
+
+        await loadInventoryForArea(user, user.areaId, user.areaName ?? "Sin area");
       } catch (error) {
         console.error("Error al cargar inventario", error);
         setStatus(error instanceof Error ? error.message : "No se pudo cargar el inventario.");
@@ -128,6 +156,63 @@ export default function InventoryPage() {
 
     loadInventoryData();
   }, []);
+
+  async function selectInventoryArea(areaId: string) {
+    if (!currentUser) {
+      return;
+    }
+
+    const area = areas.find((item) => item.id === areaId);
+
+    if (!area) {
+      setSelectedAreaId("");
+      setSelectedAreaName("");
+      setRows([]);
+      setStatus("Selecciona un área para comenzar el inventario.");
+      return;
+    }
+
+    try {
+      setStatus(`Cargando inventario de ${area.name}...`);
+      const [products, loadedCategories] = await Promise.all([
+        listProducts({ areaId }),
+        listCategories({ activeOnly: true, areaId })
+      ]);
+      const activeProducts = products.filter((product) => product.active);
+      const draft = await getActiveDraftInventory(currentUser.id, areaId);
+      const emptyRows = createInventoryRows(activeProducts);
+
+      setCatalogRows(emptyRows);
+      setCategories(loadedCategories);
+      setSelectedAreaId(areaId);
+      setSelectedAreaName(area.name);
+
+      if (draft) {
+        const hydratedDraft = hydrateDraftRows(draft.items, activeProducts, products);
+        setDraftId(draft.id);
+        setRows(hydratedDraft.rows);
+        setDraftNoticeVisible(true);
+        setDraftMergeMessage(
+          hydratedDraft.addedProductsCount > 0
+            ? `Se agregaron ${hydratedDraft.addedProductsCount} productos nuevos al borrador.`
+            : ""
+        );
+        setStatus("Tienes un borrador pendiente. Puedes continuar o descartarlo.");
+      } else {
+        setDraftId(null);
+        setRows(emptyRows);
+        setDraftNoticeVisible(false);
+        setDraftMergeMessage("");
+        setStatus(`Inventario de ${currentUser.name}. Área: ${area.name}`);
+      }
+
+      setStockDrafts({});
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error("Error al cambiar area de inventario", error);
+      setStatus(error instanceof Error ? error.message : "No se pudo cargar el area seleccionada.");
+    }
+  }
 
   useEffect(() => {
     function warnBeforeUnload(event: BeforeUnloadEvent) {
@@ -341,14 +426,14 @@ export default function InventoryPage() {
   }
 
   async function saveDraft() {
-    if (!currentUser) {
-      setStatus("No hay usuario activo para guardar el borrador.");
+    if (!currentUser || !selectedAreaId) {
+      setStatus("Selecciona un area para guardar el borrador.");
       return;
     }
 
     try {
       setSavingDraft(true);
-      const savedDraftId = await saveDraftInventoryRecord(currentUser, rows, draftId ?? undefined);
+      const savedDraftId = await saveDraftInventoryRecord(currentUser, selectedAreaId, rows, draftId ?? undefined);
       setDraftId(savedDraftId);
       setDraftNoticeVisible(false);
       setDraftMergeMessage("");
@@ -379,7 +464,7 @@ export default function InventoryPage() {
     }
 
     try {
-      await discardDraftInventoryRecord(draftId);
+      await discardDraftInventoryRecord(draftId, selectedAreaId);
       setDraftId(null);
       setRows(catalogRows);
       setStockDrafts({});
@@ -400,8 +485,8 @@ export default function InventoryPage() {
   }
 
   async function submitInventory() {
-    if (!currentUser) {
-      setStatus("No hay usuario activo para enviar el inventario.");
+    if (!currentUser || !selectedAreaId) {
+      setStatus("Selecciona un area para enviar el inventario.");
       return;
     }
 
@@ -413,9 +498,9 @@ export default function InventoryPage() {
     try {
       setSubmitting(true);
       if (draftId) {
-        await submitDraftInventoryRecord(currentUser, draftId, rows);
+        await submitDraftInventoryRecord(currentUser, selectedAreaId, draftId, rows);
       } else {
-        await submitInventoryRecord(currentUser, rows);
+        await submitInventoryRecord(currentUser, selectedAreaId, rows);
       }
 
       setRows((currentRows) =>
@@ -451,6 +536,24 @@ export default function InventoryPage() {
         action={<span className="badge neutral">{status}</span>}
       />
 
+      <section className="card" style={{ marginBottom: 18 }}>
+        {isAdmin ? (
+          <label className="field">
+            Área
+            <select onChange={(event) => selectInventoryArea(event.target.value)} value={selectedAreaId}>
+              <option value="">Seleccionar área</option>
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span className="badge neutral">Área: {selectedAreaName || currentUser?.areaName || "Sin area"}</span>
+        )}
+      </section>
+
       {draftNoticeVisible ? (
         <section className="card" style={{ marginBottom: 18 }}>
           <div className="section-title">
@@ -480,11 +583,11 @@ export default function InventoryPage() {
             </p>
           </div>
           <div className="actions desktop-inventory-actions">
-            <button className="btn secondary" disabled={submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
+            <button className="btn secondary" disabled={!selectedAreaId || submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
               <Save size={18} />
               {savingDraft ? "Guardando..." : "Guardar borrador"}
             </button>
-            <button className="btn" disabled={submitting || savingDraft || rows.length === 0} onClick={submitInventory} type="button">
+            <button className="btn" disabled={!selectedAreaId || submitting || savingDraft || rows.length === 0} onClick={submitInventory} type="button">
               <Send size={18} />
               Enviar inventario
             </button>
@@ -552,11 +655,11 @@ export default function InventoryPage() {
           </div>
 
           <div className="mobile-inventory-actions">
-            <button className="btn secondary" disabled={submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
+            <button className="btn secondary" disabled={!selectedAreaId || submitting || savingDraft || rows.length === 0} onClick={saveDraft} type="button">
               <Save size={18} />
               {savingDraft ? "Guardando..." : "Guardar borrador"}
             </button>
-            <button className="btn" disabled={submitting || savingDraft || rows.length === 0} onClick={submitInventory} type="button">
+            <button className="btn" disabled={!selectedAreaId || submitting || savingDraft || rows.length === 0} onClick={submitInventory} type="button">
               <Send size={18} />
               Enviar inventario
             </button>

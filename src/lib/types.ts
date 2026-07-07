@@ -1,10 +1,19 @@
 export type UserRole = "admin" | "trabajador";
 
+export type Area = {
+  id: string;
+  name: string;
+  active: boolean;
+  createdAt?: string;
+};
+
 export type AppUser = {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  areaId?: string | null;
+  areaName?: string | null;
   shift?: string;
   active: boolean;
 };
@@ -14,6 +23,8 @@ export type Product = {
   name: string;
   category: string;
   categoryId?: string | null;
+  areaId?: string | null;
+  areaName?: string | null;
   unit: string;
   price: number;
   active: boolean;
@@ -22,6 +33,8 @@ export type Product = {
 export type Category = {
   id: string;
   name: string;
+  areaId?: string | null;
+  areaName?: string | null;
   active: boolean;
   createdAt?: string;
 };
@@ -34,6 +47,8 @@ export type InventoryItem = {
   productName: string;
   category: string;
   categoryId?: string | null;
+  areaId?: string | null;
+  areaName?: string | null;
   productActive?: boolean;
   unit: string;
   unitPriceAtTime: number;
@@ -51,6 +66,8 @@ export type InventoryRecord = {
   submittedAt?: string;
   userId: string;
   userName: string;
+  areaId?: string | null;
+  areaName?: string | null;
   shift: string;
   items: InventoryItem[];
 };

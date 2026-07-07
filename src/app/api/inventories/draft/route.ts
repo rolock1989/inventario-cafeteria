@@ -50,6 +50,54 @@ async function getOwnedDraft(admin: Awaited<ReturnType<typeof requireAuthenticat
   return data as { id: string; user_id: string; status: "draft" } | null;
 }
 
+async function validateArea(
+  admin: Awaited<ReturnType<typeof requireAuthenticatedRequest>>["admin"],
+  profile: Awaited<ReturnType<typeof requireAuthenticatedRequest>>["profile"],
+  areaId: string
+) {
+  if (!areaId) {
+    throw new Error("Selecciona un area para el inventario.");
+  }
+
+  if (profile.role !== "admin" && profile.area_id !== areaId) {
+    throw new Error("No tienes permisos para operar en esta area.");
+  }
+
+  const { data: area, error } = await admin.from("areas").select("id,active").eq("id", areaId).eq("active", true).single();
+
+  if (error || !area) {
+    throw new Error("Selecciona un area valida.");
+  }
+}
+
+async function getOwnedDraftForArea(
+  admin: Awaited<ReturnType<typeof requireAuthenticatedRequest>>["admin"],
+  userId: string,
+  areaId: string,
+  draftId?: string
+) {
+  let query = admin
+    .from("inventory_sessions")
+    .select("id,user_id,status,area_id")
+    .eq("user_id", userId)
+    .eq("status", "draft")
+    .eq("area_id", areaId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (draftId) {
+    query = query.eq("id", draftId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as { id: string; user_id: string; status: "draft"; area_id: string } | null;
+}
+
 async function replaceDraftItems(
   admin: Awaited<ReturnType<typeof requireAuthenticatedRequest>>["admin"],
   sessionId: string,
@@ -78,8 +126,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const items = Array.isArray(body.items) ? (body.items as DraftItemInput[]) : [];
     const requestedDraftId = typeof body.draftId === "string" ? body.draftId : undefined;
+    const areaId = typeof body.areaId === "string" ? body.areaId : "";
 
-    const existingDraft = await getOwnedDraft(admin, profile.id, requestedDraftId);
+    await validateArea(admin, profile, areaId);
+
+    const existingDraft = await getOwnedDraftForArea(admin, profile.id, areaId, requestedDraftId);
     let draftId = existingDraft?.id;
 
     if (draftId) {
@@ -87,6 +138,7 @@ export async function POST(request: NextRequest) {
         .from("inventory_sessions")
         .update({
           status: "draft",
+          area_id: areaId,
           user_name: profile.name,
           user_email: profile.email,
           shift: body.shift || "Sin turno",
@@ -104,6 +156,7 @@ export async function POST(request: NextRequest) {
         .from("inventory_sessions")
         .insert({
           status: "draft",
+          area_id: areaId,
           user_id: profile.id,
           user_name: profile.name,
           user_email: profile.email,
@@ -141,13 +194,16 @@ export async function PATCH(request: NextRequest) {
     const { admin, profile } = await requireAuthenticatedRequest(request);
     const body = await request.json();
     const draftId = typeof body.draftId === "string" ? body.draftId : "";
+    const areaId = typeof body.areaId === "string" ? body.areaId : "";
     const items = Array.isArray(body.items) ? (body.items as DraftItemInput[]) : [];
 
     if (!draftId) {
       return NextResponse.json({ error: "No se encontro el borrador a enviar." }, { status: 400 });
     }
 
-    const existingDraft = await getOwnedDraft(admin, profile.id, draftId);
+    await validateArea(admin, profile, areaId);
+
+    const existingDraft = await getOwnedDraftForArea(admin, profile.id, areaId, draftId);
 
     if (!existingDraft) {
       return NextResponse.json({ error: "No se encontro un borrador activo para este usuario." }, { status: 404 });
@@ -159,6 +215,7 @@ export async function PATCH(request: NextRequest) {
       .from("inventory_sessions")
       .update({
         status: "submitted",
+        area_id: areaId,
         submitted_at: new Date().toISOString(),
         user_name: profile.name,
         user_email: profile.email,
@@ -166,6 +223,7 @@ export async function PATCH(request: NextRequest) {
       })
       .eq("id", draftId)
       .eq("user_id", profile.id)
+      .eq("area_id", areaId)
       .eq("status", "draft");
 
     if (submitError) {
@@ -187,17 +245,28 @@ export async function DELETE(request: NextRequest) {
     const { admin, profile } = await requireAuthenticatedRequest(request);
     const body = await request.json().catch(() => ({}));
     const draftId = typeof body.draftId === "string" ? body.draftId : "";
+    const areaId = typeof body.areaId === "string" ? body.areaId : "";
 
     if (!draftId) {
       return NextResponse.json({ error: "No se encontro el borrador a descartar." }, { status: 400 });
     }
 
-    const { error } = await admin
+    if (areaId) {
+      await validateArea(admin, profile, areaId);
+    }
+
+    let query = admin
       .from("inventory_sessions")
       .delete()
       .eq("id", draftId)
       .eq("user_id", profile.id)
       .eq("status", "draft");
+
+    if (areaId) {
+      query = query.eq("area_id", areaId);
+    }
+
+    const { error } = await query;
 
     if (error) {
       throw new Error(error.message);

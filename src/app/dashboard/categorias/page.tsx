@@ -2,16 +2,17 @@
 
 import { Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { Category } from "@/lib/types";
+import { Area, Category } from "@/lib/types";
 import {
   countProductsByCategory,
   createCategory,
   deleteCategoryRecord,
+  listAreas,
   listCategories,
   moveCategoryProductsAndDelete,
   updateCategoryRecord
 } from "@/lib/repositories";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const emptyCategory: Omit<Category, "id" | "createdAt"> = {
   name: "",
@@ -20,6 +21,8 @@ const emptyCategory: Omit<Category, "id" | "createdAt"> = {
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState("");
   const [form, setForm] = useState(emptyCategory);
   const [message, setMessage] = useState("Cargando categorias...");
   const [loading, setLoading] = useState(true);
@@ -28,10 +31,18 @@ export default function CategoriesPage() {
   const [targetCategoryId, setTargetCategoryId] = useState("");
   const [movingProducts, setMovingProducts] = useState(false);
 
-  async function loadCategories() {
+  function pickDefaultArea(loadedAreas: Area[]) {
+    return loadedAreas.find((area) => area.name.toLowerCase() === "cafetería")?.id ?? loadedAreas[0]?.id ?? "";
+  }
+
+  const loadCategories = useCallback(async (areaId?: string) => {
     try {
       setLoading(true);
-      setCategories(await listCategories());
+      const loadedAreas = await listAreas({ activeOnly: true });
+      const nextAreaId = areaId || selectedAreaId || pickDefaultArea(loadedAreas);
+      setAreas(loadedAreas);
+      setSelectedAreaId(nextAreaId);
+      setCategories(await listCategories({ areaId: nextAreaId }));
       setMessage("Categorias cargadas.");
     } catch (error) {
       console.error("Error al cargar categorias", error);
@@ -39,21 +50,28 @@ export default function CategoriesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedAreaId]);
 
   useEffect(() => {
     loadCategories();
-  }, []);
+  }, [loadCategories]);
+
+  async function changeArea(areaId: string) {
+    setCategoryToMove(null);
+    setTargetCategoryId("");
+    await loadCategories(areaId);
+  }
 
   async function addCategory() {
-    if (!form.name.trim()) {
-      setMessage("Completa el nombre de la categoria.");
+    if (!selectedAreaId || !form.name.trim()) {
+      setMessage("Selecciona area y completa el nombre de la categoria.");
       return;
     }
 
     try {
       const createdCategory = await createCategory({
         name: form.name.trim(),
+        areaId: selectedAreaId,
         active: form.active
       });
       setCategories((current) => [...current, createdCategory].sort((a, b) => a.name.localeCompare(b.name, "es")));
@@ -74,6 +92,7 @@ export default function CategoriesPage() {
       setSavingId(category.id);
       const savedCategory = await updateCategoryRecord(category.id, {
         name: category.name.trim(),
+        areaId: selectedAreaId,
         active: category.active
       });
       setCategories((current) => current.map((item) => (item.id === category.id ? savedCategory : item)));
@@ -147,6 +166,19 @@ export default function CategoriesPage() {
         description="Crea categorias una sola vez y usalas en el catalogo de productos."
         action={<span className="badge neutral">{message}</span>}
       />
+
+      <section className="card" style={{ marginBottom: 18 }}>
+        <label className="field">
+          Área
+          <select onChange={(event) => changeArea(event.target.value)} value={selectedAreaId}>
+            {areas.map((area) => (
+              <option key={area.id} value={area.id}>
+                {area.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
 
       <section className="grid cols-2">
         <article className="card">

@@ -9,10 +9,22 @@ export async function POST(request: NextRequest) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const role = body.role === "admin" ? "admin" : "trabajador";
+    const areaId = typeof body.areaId === "string" ? body.areaId : "";
     const active = Boolean(body.active);
 
-    if (!name || !email || !password) {
-      return NextResponse.json({ error: "Nombre, email y contrasena son obligatorios." }, { status: 400 });
+    if (!name || !email || !password || !areaId) {
+      return NextResponse.json({ error: "Nombre, email, contrasena y area son obligatorios." }, { status: 400 });
+    }
+
+    const { data: area, error: areaError } = await admin
+      .from("areas")
+      .select("id")
+      .eq("id", areaId)
+      .eq("active", true)
+      .single();
+
+    if (areaError || !area) {
+      return NextResponse.json({ error: "Selecciona un area valida." }, { status: 400 });
     }
 
     const { data: created, error: authError } = await admin.auth.admin.createUser({
@@ -35,9 +47,10 @@ export async function POST(request: NextRequest) {
         name,
         email,
         role,
+        area_id: areaId,
         active
       })
-      .select("id,name,email,role,active")
+      .select("id,name,email,role,area_id,active,areas(id,name,active)")
       .single();
 
     if (profileError) {

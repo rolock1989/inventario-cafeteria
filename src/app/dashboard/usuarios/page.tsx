@@ -2,8 +2,8 @@
 
 import { Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { createUser, deleteUserRecord, listUsers, updateUserRecord } from "@/lib/repositories";
-import { AppUser, UserRole } from "@/lib/types";
+import { createUser, deleteUserRecord, listAreas, listUsers, updateUserRecord } from "@/lib/repositories";
+import { AppUser, Area, UserRole } from "@/lib/types";
 import { useEffect, useState } from "react";
 
 type UserForm = Omit<AppUser, "id" | "shift"> & {
@@ -17,11 +17,14 @@ const emptyUser: UserForm = {
   email: "",
   password: "",
   role: "trabajador",
+  areaId: "",
+  areaName: "",
   active: true
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
   const [form, setForm] = useState(emptyUser);
   const [passwordDrafts, setPasswordDrafts] = useState<PasswordDrafts>({});
   const [message, setMessage] = useState("Cargando usuarios...");
@@ -31,7 +34,9 @@ export default function UsersPage() {
   async function loadUsers() {
     try {
       setLoading(true);
-      setUsers(await listUsers());
+      const [loadedUsers, loadedAreas] = await Promise.all([listUsers(), listAreas({ activeOnly: true })]);
+      setUsers(loadedUsers);
+      setAreas(loadedAreas);
       setMessage("Usuarios cargados.");
     } catch (error) {
       console.error("Error al cargar usuarios", error);
@@ -46,8 +51,8 @@ export default function UsersPage() {
   }, []);
 
   async function addUser() {
-    if (!form.name.trim() || !form.email.trim() || !form.password) {
-      setMessage("Completa nombre, email y contrasena.");
+    if (!form.name.trim() || !form.email.trim() || !form.password || !form.areaId) {
+      setMessage("Completa nombre, email, contrasena y area.");
       return;
     }
 
@@ -57,6 +62,7 @@ export default function UsersPage() {
         email: form.email.trim(),
         password: form.password,
         role: form.role,
+        areaId: form.areaId,
         active: form.active
       });
       setUsers((current) => [...current, createdUser].sort((a, b) => a.name.localeCompare(b.name, "es")));
@@ -79,6 +85,7 @@ export default function UsersPage() {
         name: user.name.trim(),
         email: user.email.trim(),
         role: user.role,
+        areaId: user.areaId,
         active: user.active,
         password: passwordDrafts[user.id]?.trim() || undefined
       });
@@ -147,6 +154,17 @@ export default function UsersPage() {
             </select>
           </label>
           <label className="field">
+            Área
+            <select onChange={(event) => setForm({ ...form, areaId: event.target.value })} value={form.areaId ?? ""}>
+              <option value="">Seleccionar área</option>
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
             Estado
             <select
               onChange={(event) => setForm({ ...form, active: event.target.value === "true" })}
@@ -170,7 +188,8 @@ export default function UsersPage() {
               <div className="mobile-record-header">
                 <div>
                   <h3>{user.name || "Usuario sin nombre"}</h3>
-                  <p className="muted">{user.email}</p>
+                <p className="muted">{user.email}</p>
+                  <p className="muted">Área: {user.areaName ?? "Sin area"}</p>
                 </div>
                 <span className={`badge ${user.active ? "positive" : "neutral"}`}>
                   {user.active ? "Activo" : "Inactivo"}
@@ -207,6 +226,23 @@ export default function UsersPage() {
                   >
                     <option value="true">Activo</option>
                     <option value="false">Inactivo</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Área
+                  <select
+                    onChange={(event) => {
+                      const area = areas.find((item) => item.id === event.target.value);
+                      updateUser(user.id, { areaId: event.target.value, areaName: area?.name ?? "" });
+                    }}
+                    value={user.areaId ?? ""}
+                  >
+                    <option value="">Seleccionar área</option>
+                    {areas.map((area) => (
+                      <option key={area.id} value={area.id}>
+                        {area.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="field full">
@@ -251,6 +287,7 @@ export default function UsersPage() {
                 <th>Nombre</th>
                 <th>Email</th>
                 <th>Rol</th>
+                <th>Área</th>
                 <th>Estado</th>
                 <th>Cambiar contrasena</th>
                 <th>Acciones</th>
@@ -276,6 +313,22 @@ export default function UsersPage() {
                     >
                       <option value="admin">Admin</option>
                       <option value="trabajador">Trabajador</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      onChange={(event) => {
+                        const area = areas.find((item) => item.id === event.target.value);
+                        updateUser(user.id, { areaId: event.target.value, areaName: area?.name ?? "" });
+                      }}
+                      value={user.areaId ?? ""}
+                    >
+                      <option value="">Seleccionar área</option>
+                      {areas.map((area) => (
+                        <option key={area.id} value={area.id}>
+                          {area.name}
+                        </option>
+                      ))}
                     </select>
                   </td>
                   <td>
@@ -315,7 +368,7 @@ export default function UsersPage() {
               ))}
               {!loading && users.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={6}>
+                  <td className="muted" colSpan={7}>
                     No hay usuarios registrados.
                   </td>
                 </tr>

@@ -6,13 +6,14 @@ import {
   createCategory,
   createProduct,
   deleteProductRecord,
+  listAreas,
   listCategories,
   listProducts,
   loadCurrentUser,
   updateProductRecord
 } from "@/lib/repositories";
-import { Category, Product } from "@/lib/types";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { Area, Category, Product } from "@/lib/types";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 const emptyProduct: Omit<Product, "id"> = {
   name: "",
@@ -87,6 +88,8 @@ const categoryImportBatchSize = 25;
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(emptyProduct);
@@ -133,19 +136,30 @@ export default function ProductsPage() {
   const allFilteredSelected =
     filteredProducts.length > 0 && filteredProducts.every((product) => selectedProductIds.has(product.id));
 
-  async function loadProducts() {
+  function pickDefaultArea(loadedAreas: Area[]) {
+    return loadedAreas.find((area) => area.name.toLowerCase() === "cafetería")?.id ?? loadedAreas[0]?.id ?? "";
+  }
+
+  const loadProducts = useCallback(async (areaId?: string) => {
     try {
       setLoading(true);
-      const [loadedProducts, loadedCategories, loadedAllCategories, currentUser] = await Promise.all([
-        listProducts(),
-        listCategories({ activeOnly: true }),
-        listCategories(),
+      const [loadedAreas, currentUser] = await Promise.all([
+        listAreas({ activeOnly: true }),
         loadCurrentUser()
       ]);
+      const nextAreaId = areaId || selectedAreaId || pickDefaultArea(loadedAreas);
+      const [loadedProducts, loadedCategories, loadedAllCategories] = await Promise.all([
+        listProducts({ areaId: nextAreaId }),
+        listCategories({ activeOnly: true, areaId: nextAreaId }),
+        listCategories({ areaId: nextAreaId })
+      ]);
+      setAreas(loadedAreas);
+      setSelectedAreaId(nextAreaId);
       setProducts(loadedProducts);
       setCategories(loadedCategories);
       setAllCategories(loadedAllCategories);
       setIsAdmin(currentUser.role === "admin");
+      setSelectedProductIds(new Set());
       setMessage("Productos cargados.");
     } catch (error) {
       console.error("Error al cargar productos", error);
@@ -153,15 +167,22 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedAreaId]);
 
   useEffect(() => {
     loadProducts();
-  }, []);
+  }, [loadProducts]);
+
+  async function changeArea(areaId: string) {
+    setImportPreview(null);
+    setImportProgress(null);
+    setImportResult(null);
+    await loadProducts(areaId);
+  }
 
   async function addProduct() {
-    if (!form.name.trim() || !form.categoryId || !form.unit.trim()) {
-      setMessage("Completa nombre, categoria y unidad de medida.");
+    if (!selectedAreaId || !form.name.trim() || !form.categoryId || !form.unit.trim()) {
+      setMessage("Selecciona area y completa nombre, categoria y unidad de medida.");
       return;
     }
     const selectedCategory = categories.find((category) => category.id === form.categoryId);
@@ -171,6 +192,7 @@ export default function ProductsPage() {
         name: form.name.trim(),
         category: selectedCategory?.name ?? "Sin categoria",
         categoryId: form.categoryId,
+        areaId: selectedAreaId,
         unit: form.unit,
         price: Number(form.price) || 0,
         active: form.active
@@ -195,6 +217,7 @@ export default function ProductsPage() {
         name: product.name.trim(),
         category: product.category,
         categoryId: product.categoryId,
+        areaId: selectedAreaId,
         unit: product.unit,
         price: Number(product.price) || 0,
         active: product.active
@@ -270,6 +293,11 @@ export default function ProductsPage() {
     event.target.value = "";
 
     if (!file) {
+      return;
+    }
+
+    if (!selectedAreaId) {
+      setMessage("Selecciona un area antes de importar.");
       return;
     }
 
@@ -431,7 +459,7 @@ export default function ProductsPage() {
 
         const categoryResults = await Promise.allSettled(
           categoryBatch.map(async (categoryName) => {
-            const createdCategory = await createCategory({ name: categoryName, active: true });
+            const createdCategory = await createCategory({ name: categoryName, areaId: selectedAreaId, active: true });
             return createdCategory;
           })
         );
@@ -493,6 +521,7 @@ export default function ProductsPage() {
               await updateProductRecord(existingProduct.id, {
                 category: category?.name ?? row.category,
                 categoryId: category?.id ?? null,
+                areaId: selectedAreaId,
                 price: row.price
               });
 
@@ -518,6 +547,7 @@ export default function ProductsPage() {
               name: row.name,
               category: category?.name ?? row.category,
               categoryId: category?.id ?? null,
+              areaId: selectedAreaId,
               unit: "Unidades",
               price: row.price,
               active: true
@@ -686,6 +716,19 @@ export default function ProductsPage() {
         description="Catalogo persistente para los inventarios semanales."
         action={<span className="badge neutral">{message}</span>}
       />
+
+      <section className="card" style={{ marginBottom: 18 }}>
+        <label className="field">
+          Área
+          <select onChange={(event) => changeArea(event.target.value)} value={selectedAreaId}>
+            {areas.map((area) => (
+              <option key={area.id} value={area.id}>
+                {area.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
 
       <section className="grid cols-2">
         <article className="card">

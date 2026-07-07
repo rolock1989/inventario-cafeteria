@@ -88,7 +88,7 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
       <PageHeader
         eyebrow="Detalle de inventario"
         title={formatDateTime(inventory.submittedAt)}
-        description={`Realizado por ${inventory.userName}, ${inventory.shift}.`}
+        description={`Área: ${inventory.areaName ?? "Sin area"}. Realizado por ${inventory.userName}, ${inventory.shift}.`}
         action={
           <Link className="btn secondary" href="/dashboard/historial">
             <ArrowLeft size={18} />

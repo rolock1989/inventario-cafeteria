@@ -1,7 +1,14 @@
 import { mockInventories, mockProducts } from "@/lib/mock-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { AppUser, Category, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
+import { AppUser, Area, Category, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
 import { assertActiveUser, getAuthSession, getFreshAuthSession } from "@/lib/auth";
+
+type AreaRow = {
+  id: string;
+  name: string;
+  active: boolean;
+  created_at?: string;
+};
 
 type ProductRow = {
   id: string;
@@ -9,6 +16,8 @@ type ProductRow = {
   category: string | null;
   category_id: string | null;
   categories?: Pick<CategoryRow, "id" | "name" | "active"> | Pick<CategoryRow, "id" | "name" | "active">[] | null;
+  area_id: string | null;
+  areas?: Pick<AreaRow, "id" | "name" | "active"> | Pick<AreaRow, "id" | "name" | "active">[] | null;
   unit: string;
   price: number | null;
   active: boolean;
@@ -17,6 +26,8 @@ type ProductRow = {
 type CategoryRow = {
   id: string;
   name: string;
+  area_id: string | null;
+  areas?: Pick<AreaRow, "id" | "name" | "active"> | Pick<AreaRow, "id" | "name" | "active">[] | null;
   active: boolean;
   created_at?: string;
 };
@@ -26,6 +37,8 @@ type ProfileRow = {
   name: string;
   email: string;
   role: UserRole;
+  area_id: string | null;
+  areas?: Pick<AreaRow, "id" | "name" | "active"> | Pick<AreaRow, "id" | "name" | "active">[] | null;
   active: boolean;
 };
 
@@ -35,6 +48,8 @@ type InventorySessionRow = {
   user_id: string | null;
   user_name: string;
   user_email: string | null;
+  area_id: string | null;
+  areas?: Pick<AreaRow, "id" | "name" | "active"> | Pick<AreaRow, "id" | "name" | "active">[] | null;
   shift: string;
   created_at: string;
   submitted_at: string | null;
@@ -77,19 +92,22 @@ function requirePersistence() {
 
 function mapProduct(row: ProductRow): Product {
   const category = Array.isArray(row.categories) ? row.categories[0] : row.categories;
+  const area = Array.isArray(row.areas) ? row.areas[0] : row.areas;
 
   return {
     id: row.id,
     name: row.name,
     category: category?.name ?? row.category ?? "Sin categoria",
     categoryId: row.category_id ?? category?.id ?? null,
+    areaId: row.area_id ?? area?.id ?? null,
+    areaName: area?.name ?? null,
     unit: row.unit,
     price: Number(row.price ?? 0),
     active: row.active
   };
 }
 
-function mapCategory(row: CategoryRow): Category {
+function mapArea(row: AreaRow): Area {
   return {
     id: row.id,
     name: row.name,
@@ -98,12 +116,29 @@ function mapCategory(row: CategoryRow): Category {
   };
 }
 
+function mapCategory(row: CategoryRow): Category {
+  const area = Array.isArray(row.areas) ? row.areas[0] : row.areas;
+
+  return {
+    id: row.id,
+    name: row.name,
+    areaId: row.area_id ?? area?.id ?? null,
+    areaName: area?.name ?? null,
+    active: row.active,
+    createdAt: row.created_at
+  };
+}
+
 function mapProfile(row: ProfileRow): AppUser {
+  const area = Array.isArray(row.areas) ? row.areas[0] : row.areas;
+
   return {
     id: row.id,
     name: row.name,
     email: row.email,
     role: row.role,
+    areaId: row.area_id ?? area?.id ?? null,
+    areaName: area?.name ?? null,
     shift: "",
     active: row.active
   };
@@ -146,6 +181,7 @@ function mapInventoryItem(row: InventoryItemRow): InventoryItem {
 
 function mapInventory(row: InventorySessionRow): InventoryRecord {
   const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  const area = Array.isArray(row.areas) ? row.areas[0] : row.areas;
 
   return {
     id: row.id,
@@ -154,23 +190,47 @@ function mapInventory(row: InventorySessionRow): InventoryRecord {
     submittedAt: row.submitted_at ?? undefined,
     userId: row.user_id ?? "",
     userName: profile?.name ?? row.user_name,
+    areaId: row.area_id ?? area?.id ?? null,
+    areaName: area?.name ?? null,
     shift: row.shift,
     items: row.inventory_items?.map(mapInventoryItem) ?? []
   };
 }
 
-export async function listProducts(options: { activeOnly?: boolean } = {}) {
+export async function listAreas(options: { activeOnly?: boolean } = {}) {
+  requirePersistence();
+
+  let query = requireSupabase().from("areas").select("id,name,active,created_at").order("name");
+
+  if (options.activeOnly) {
+    query = query.eq("active", true);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(`No se pudieron cargar las areas: ${error.message}`);
+  }
+
+  return (data as AreaRow[]).map(mapArea);
+}
+
+export async function listProducts(options: { activeOnly?: boolean; areaId?: string | null } = {}) {
   if (!usingSupabase()) {
     return options.activeOnly ? mockProducts.filter((product) => product.active) : mockProducts;
   }
 
   let query = requireSupabase()
     .from("products")
-    .select("id,name,category,category_id,unit,price,active,categories(id,name,active)")
+    .select("id,name,category,category_id,area_id,unit,price,active,categories(id,name,active),areas(id,name,active)")
     .order("name");
 
   if (options.activeOnly) {
     query = query.eq("active", true);
+  }
+
+  if (options.areaId) {
+    query = query.eq("area_id", options.areaId);
   }
 
   const { data, error } = await query;
@@ -192,11 +252,12 @@ export async function createProduct(input: Omit<Product, "id">) {
       name: input.name,
       category: categoryName,
       category_id: input.categoryId || null,
+      area_id: input.areaId || null,
       unit: input.unit,
       price: input.price,
       active: input.active
     })
-    .select("id,name,category,category_id,unit,price,active,categories(id,name,active)")
+    .select("id,name,category,category_id,area_id,unit,price,active,categories(id,name,active),areas(id,name,active)")
     .single();
 
   if (error) {
@@ -220,6 +281,7 @@ export async function updateProductRecord(id: string, patch: Partial<Omit<Produc
       name: nextPatch.name,
       category: nextPatch.category,
       category_id: nextPatch.categoryId,
+      area_id: nextPatch.areaId,
       unit: nextPatch.unit,
       price: nextPatch.price,
       active: nextPatch.active,
@@ -238,13 +300,20 @@ export async function updateProductRecord(id: string, patch: Partial<Omit<Produc
   }
 }
 
-export async function listCategories(options: { activeOnly?: boolean } = {}) {
+export async function listCategories(options: { activeOnly?: boolean; areaId?: string | null } = {}) {
   requirePersistence();
 
-  let query = requireSupabase().from("categories").select("id,name,active,created_at").order("name");
+  let query = requireSupabase()
+    .from("categories")
+    .select("id,name,area_id,active,created_at,areas(id,name,active)")
+    .order("name");
 
   if (options.activeOnly) {
     query = query.eq("active", true);
+  }
+
+  if (options.areaId) {
+    query = query.eq("area_id", options.areaId);
   }
 
   const { data, error } = await query;
@@ -273,9 +342,10 @@ export async function createCategory(input: Omit<Category, "id" | "createdAt">) 
     .from("categories")
     .insert({
       name: input.name,
+      area_id: input.areaId || null,
       active: input.active
     })
-    .select("id,name,active,created_at")
+    .select("id,name,area_id,active,created_at,areas(id,name,active)")
     .single();
 
   if (error) {
@@ -290,9 +360,13 @@ export async function updateCategoryRecord(id: string, patch: Partial<Omit<Categ
 
   const { data, error } = await requireSupabase()
     .from("categories")
-    .update(patch)
+    .update({
+      name: patch.name,
+      area_id: patch.areaId,
+      active: patch.active
+    })
     .eq("id", id)
-    .select("id,name,active,created_at")
+    .select("id,name,area_id,active,created_at,areas(id,name,active)")
     .single();
 
   if (error) {
@@ -352,6 +426,21 @@ export async function moveCategoryProductsAndDelete(categoryId: string, targetCa
   }
 
   const targetCategoryName = await getCategoryName(targetCategoryId);
+  const { data: categories, error: categoryError } = await requireSupabase()
+    .from("categories")
+    .select("id,area_id")
+    .in("id", [categoryId, targetCategoryId]);
+
+  if (categoryError) {
+    throw new Error(`No se pudieron validar las categorias: ${categoryError.message}`);
+  }
+
+  const sourceCategory = categories?.find((category) => category.id === categoryId);
+  const targetCategory = categories?.find((category) => category.id === targetCategoryId);
+
+  if (!sourceCategory || !targetCategory || sourceCategory.area_id !== targetCategory.area_id) {
+    throw new Error("La categoria de destino debe pertenecer a la misma area.");
+  }
 
   const { error: moveError } = await requireSupabase()
     .from("products")
@@ -386,7 +475,10 @@ export async function deleteProductRecord(id: string) {
 export async function listUsers(options: { activeOnly?: boolean } = {}) {
   requirePersistence();
 
-  let query = requireSupabase().from("profiles").select("id,name,email,role,active").order("name");
+  let query = requireSupabase()
+    .from("profiles")
+    .select("id,name,email,role,area_id,active,areas(id,name,active)")
+    .order("name");
 
   if (options.activeOnly) {
     query = query.eq("active", true);
@@ -406,7 +498,7 @@ export async function getProfileById(id: string) {
 
   const { data, error } = await requireSupabase()
     .from("profiles")
-    .select("id,name,email,role,active")
+    .select("id,name,email,role,area_id,active,areas(id,name,active)")
     .eq("id", id)
     .single();
 
@@ -480,7 +572,10 @@ export async function loadCurrentUser() {
   return user;
 }
 
-export async function listInventories() {
+const inventorySelect =
+  "id,status,user_id,user_name,user_email,area_id,shift,created_at,submitted_at,areas(id,name,active),profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)";
+
+export async function listInventories(options: { areaId?: string | null } = {}) {
   if (!usingSupabase()) {
     return [...mockInventories].sort((a, b) => {
       const aDate = a.submittedAt ?? a.createdAt;
@@ -489,13 +584,17 @@ export async function listInventories() {
     });
   }
 
-  const { data, error } = await requireSupabase()
+  let query = requireSupabase()
     .from("inventory_sessions")
-    .select(
-      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
-    )
+    .select(inventorySelect)
     .eq("status", "submitted")
     .order("submitted_at", { ascending: false });
+
+  if (options.areaId) {
+    query = query.eq("area_id", options.areaId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`No se pudo cargar el historial: ${error.message}`);
@@ -504,21 +603,24 @@ export async function listInventories() {
   return (data as InventorySessionRow[]).map(mapInventory);
 }
 
-export async function getActiveDraftInventory(userId: string) {
+export async function getActiveDraftInventory(userId: string, areaId?: string | null) {
   if (!usingSupabase()) {
     return undefined;
   }
 
-  const { data, error } = await requireSupabase()
+  let query = requireSupabase()
     .from("inventory_sessions")
-    .select(
-      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
-    )
+    .select(inventorySelect)
     .eq("status", "draft")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+
+  if (areaId) {
+    query = query.eq("area_id", areaId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     throw new Error(`No se pudo cargar el borrador: ${error.message}`);
@@ -534,9 +636,7 @@ export async function getInventoryRecord(id: string) {
 
   const { data, error } = await requireSupabase()
     .from("inventory_sessions")
-    .select(
-      "id,status,user_id,user_name,user_email,shift,created_at,submitted_at,profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)"
-    )
+    .select(inventorySelect)
     .eq("id", id)
     .eq("status", "submitted")
     .single();
@@ -561,7 +661,7 @@ export async function deleteInventoryRecord(id: string) {
   }
 }
 
-export async function saveDraftInventoryRecord(user: AppUser, items: InventoryItem[], draftId?: string) {
+export async function saveDraftInventoryRecord(user: AppUser, areaId: string, items: InventoryItem[], draftId?: string) {
   requirePersistence();
 
   const response = await fetch("/api/inventories/draft", {
@@ -569,6 +669,7 @@ export async function saveDraftInventoryRecord(user: AppUser, items: InventoryIt
     headers: await getAuthorizationHeaders(),
     body: JSON.stringify({
       draftId,
+      areaId,
       shift: user.shift || "Sin turno",
       items
     })
@@ -582,7 +683,7 @@ export async function saveDraftInventoryRecord(user: AppUser, items: InventoryIt
   return data.draftId as string;
 }
 
-export async function submitDraftInventoryRecord(user: AppUser, draftId: string, items: InventoryItem[]) {
+export async function submitDraftInventoryRecord(user: AppUser, areaId: string, draftId: string, items: InventoryItem[]) {
   requirePersistence();
 
   const response = await fetch("/api/inventories/draft", {
@@ -590,6 +691,7 @@ export async function submitDraftInventoryRecord(user: AppUser, draftId: string,
     headers: await getAuthorizationHeaders(),
     body: JSON.stringify({
       draftId,
+      areaId,
       shift: user.shift || "Sin turno",
       items
     })
@@ -600,13 +702,13 @@ export async function submitDraftInventoryRecord(user: AppUser, draftId: string,
   }
 }
 
-export async function discardDraftInventoryRecord(draftId: string) {
+export async function discardDraftInventoryRecord(draftId: string, areaId?: string) {
   requirePersistence();
 
   const response = await fetch("/api/inventories/draft", {
     method: "DELETE",
     headers: await getAuthorizationHeaders(),
-    body: JSON.stringify({ draftId })
+    body: JSON.stringify({ draftId, areaId })
   });
 
   if (!response.ok) {
@@ -614,7 +716,7 @@ export async function discardDraftInventoryRecord(draftId: string) {
   }
 }
 
-export async function submitInventoryRecord(user: AppUser, items: InventoryItem[]) {
+export async function submitInventoryRecord(user: AppUser, areaId: string, items: InventoryItem[]) {
   requirePersistence();
 
   const client = requireSupabase();
@@ -627,6 +729,7 @@ export async function submitInventoryRecord(user: AppUser, items: InventoryItem[
       user_id: user.id,
       user_name: user.name,
       user_email: user.email,
+      area_id: areaId,
       shift: user.shift || "Sin turno",
       submitted_at: now
     })

@@ -9,7 +9,7 @@ import { AppUser } from "@/lib/types";
 import { signOut } from "@/lib/auth";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin"] },
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin", "trabajador"] },
   { href: "/dashboard/inventario", label: "Inventario", icon: ClipboardList, roles: ["admin", "trabajador"] },
   { href: "/dashboard/productos", label: "Productos", icon: Package, roles: ["admin"] },
   { href: "/dashboard/categorias", label: "Categorias", icon: Tags, roles: ["admin"] },

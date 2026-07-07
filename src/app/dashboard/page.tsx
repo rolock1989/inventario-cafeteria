@@ -9,8 +9,8 @@ import {
   getInventoryTotalLoss,
   getItemLossAmount
 } from "@/lib/inventory";
-import { listInventories, loadCurrentUser } from "@/lib/repositories";
-import { InventoryItem, InventoryRecord } from "@/lib/types";
+import { listAreas, listInventories, loadCurrentUser } from "@/lib/repositories";
+import { Area, InventoryItem, InventoryRecord } from "@/lib/types";
 import { useEffect, useMemo, useState } from "react";
 
 type ProductLossRankingItem = {
@@ -23,8 +23,8 @@ type ProductLossRankingItem = {
   totalLoss: number;
 };
 
-function productRankingKey(item: InventoryItem) {
-  return item.productId || `${item.productName.trim().toLowerCase()}-${item.category.trim().toLowerCase()}`;
+function productRankingKey(item: InventoryItem, inventory: InventoryRecord) {
+  return item.productId || `${inventory.areaId ?? "sin-area"}-${item.productName.trim().toLowerCase()}-${item.category.trim().toLowerCase()}`;
 }
 
 function formatQuantity(value: number, unit: string) {
@@ -67,6 +67,9 @@ export default function DashboardPage() {
   const [inventories, setInventories] = useState<InventoryRecord[]>([]);
   const [message, setMessage] = useState("Cargando resumen...");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState("todas");
+  const [workerAreaName, setWorkerAreaName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentDateTime, setCurrentDateTime] = useState(() => new Date());
@@ -74,9 +77,15 @@ export default function DashboardPage() {
   useEffect(() => {
     async function loadDashboard() {
       try {
-        const [records, user] = await Promise.all([listInventories(), loadCurrentUser()]);
+        const user = await loadCurrentUser();
+        const [records, loadedAreas] = await Promise.all([
+          listInventories(),
+          user.role === "admin" ? listAreas({ activeOnly: true }) : Promise.resolve([])
+        ]);
         setInventories(records);
         setIsAdmin(user.role === "admin");
+        setAreas(loadedAreas);
+        setWorkerAreaName(user.areaName ?? "Sin area");
 
         if (records.length > 0) {
           const times = records.map((inventory) => new Date(inventory.submittedAt ?? inventory.createdAt).getTime());
@@ -100,8 +109,11 @@ export default function DashboardPage() {
   }, []);
 
   const filteredInventories = useMemo(
-    () => filterInventoriesByDateRange(inventories, startDate, endDate),
-    [endDate, inventories, startDate]
+    () =>
+      filterInventoriesByDateRange(inventories, startDate, endDate).filter(
+        (inventory) => areaFilter === "todas" || inventory.areaId === areaFilter
+      ),
+    [areaFilter, endDate, inventories, startDate]
   );
   const latestInventory = filteredInventories[0];
   const hasInventoriesInRange = filteredInventories.length > 0;
@@ -126,21 +138,21 @@ export default function DashboardPage() {
     () =>
       Array.from(
         filteredInventories
-          .flatMap((inventory) => inventory.items)
-          .filter((item) => item.physicalStock < item.fudoStock)
+          .flatMap((inventory) => inventory.items.map((item) => ({ inventory, item })))
+          .filter(({ item }) => item.physicalStock < item.fudoStock)
           .reduce<Map<string, ProductLossRankingItem>>((ranking, item) => {
-            const key = productRankingKey(item);
+            const key = productRankingKey(item.item, item.inventory);
             const current = ranking.get(key);
-            const missingQuantity = item.fudoStock - item.physicalStock;
-            const totalLoss = getItemLossAmount(item);
+            const missingQuantity = item.item.fudoStock - item.item.physicalStock;
+            const totalLoss = getItemLossAmount(item.item);
 
             if (!current) {
               ranking.set(key, {
                 key,
                 position: 0,
-                productName: item.productName,
-                category: item.category,
-                unit: item.unit,
+                productName: areaFilter === "todas" ? `${item.item.productName} (${item.inventory.areaName ?? "Sin area"})` : item.item.productName,
+                category: item.item.category,
+                unit: item.item.unit,
                 missingQuantity,
                 totalLoss
               });
@@ -161,7 +173,7 @@ export default function DashboardPage() {
         .sort((a, b) => b.missingQuantity - a.missingQuantity)
         .slice(0, 10)
         .map((item, index) => ({ ...item, position: index + 1 })),
-    [filteredInventories]
+    [areaFilter, filteredInventories]
   );
 
   return (
@@ -175,6 +187,24 @@ export default function DashboardPage() {
 
       <section className="card" style={{ marginBottom: 18 }}>
         <div className="form-grid">
+          {isAdmin ? (
+            <label className="field">
+              Área
+              <select onChange={(event) => setAreaFilter(event.target.value)} value={areaFilter}>
+                <option value="todas">Todas las áreas</option>
+                {areas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="field">
+              <label>Área</label>
+              <span className="badge neutral">{workerAreaName}</span>
+            </div>
+          )}
           <label className="field">
             Fecha de inicio
             <input onChange={(event) => setStartDate(event.target.value)} type="date" value={startDate} />

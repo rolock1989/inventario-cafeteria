@@ -13,8 +13,8 @@ import {
   summarizeInventory
 } from "@/lib/inventory";
 import { downloadInventoriesExcel } from "@/lib/excel";
-import { deleteInventoryRecord, listInventories, loadCurrentUser } from "@/lib/repositories";
-import { InventoryRecord } from "@/lib/types";
+import { deleteInventoryRecord, listAreas, listInventories, loadCurrentUser } from "@/lib/repositories";
+import { Area, InventoryRecord } from "@/lib/types";
 import { useEffect, useMemo, useState } from "react";
 
 function todayForInput() {
@@ -28,14 +28,23 @@ export default function HistoryPage() {
   const [endDate, setEndDate] = useState(todayForInput);
   const [message, setMessage] = useState("Cargando historial...");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState("todas");
+  const [workerAreaName, setWorkerAreaName] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadHistory() {
       try {
-        const [records, user] = await Promise.all([listInventories(), loadCurrentUser()]);
+        const user = await loadCurrentUser();
+        const [records, loadedAreas] = await Promise.all([
+          listInventories(),
+          user.role === "admin" ? listAreas({ activeOnly: true }) : Promise.resolve([])
+        ]);
         setInventories(records);
         setIsAdmin(user.role === "admin");
+        setAreas(loadedAreas);
+        setWorkerAreaName(user.areaName ?? "Sin area");
 
         if (records.length > 0) {
           const times = records.map((inventory) => new Date(inventory.submittedAt ?? inventory.createdAt).getTime());
@@ -59,10 +68,11 @@ export default function HistoryPage() {
     const inventoriesInRange = filterInventoriesByDateRange(inventories, startDate, endDate);
 
     return inventoriesInRange.filter((inventory) => {
+      const matchesArea = areaFilter === "todas" || inventory.areaId === areaFilter;
       const matchesUser = userFilter === "todos" || inventory.userName === userFilter;
-      return matchesUser;
+      return matchesArea && matchesUser;
     });
-  }, [endDate, inventories, startDate, userFilter]);
+  }, [areaFilter, endDate, inventories, startDate, userFilter]);
 
   async function exportExcel() {
     const filenameStart = startDate || "inicio";
@@ -101,6 +111,24 @@ export default function HistoryPage() {
 
       <section className="card" style={{ marginBottom: 18 }}>
         <div className="form-grid">
+          {isAdmin ? (
+            <label className="field">
+              Área
+              <select onChange={(event) => setAreaFilter(event.target.value)} value={areaFilter}>
+                <option value="todas">Todas las áreas</option>
+                {areas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="field">
+              <label>Área</label>
+              <span className="badge neutral">{workerAreaName}</span>
+            </div>
+          )}
           <label className="field">
             Fecha de inicio
             <input onChange={(event) => setStartDate(event.target.value)} type="date" value={startDate} />
@@ -141,7 +169,8 @@ export default function HistoryPage() {
                 <div className="mobile-record-header">
                   <div>
                     <h3>{formatDateTime(inventory.submittedAt)}</h3>
-                    <p className="muted">{inventory.userName}</p>
+                  <p className="muted">{inventory.userName}</p>
+                  <p className="muted">{inventory.areaName ?? "Sin area"}</p>
                   </div>
                   <DifferenceBadge value={totalDifference} />
                 </div>
@@ -190,6 +219,7 @@ export default function HistoryPage() {
               <tr>
                 <th>Fecha</th>
                 <th>Usuario</th>
+                <th>Área</th>
                 <th>Turno</th>
                 <th>Productos</th>
                 <th>Con diferencias</th>
@@ -208,6 +238,7 @@ export default function HistoryPage() {
                   <tr key={inventory.id}>
                     <td>{formatDateTime(inventory.submittedAt)}</td>
                     <td>{inventory.userName}</td>
+                    <td>{inventory.areaName ?? "Sin area"}</td>
                     <td>{inventory.shift}</td>
                     <td>{summary.totalProducts}</td>
                     <td>{summary.productsWithDifferences}</td>
@@ -240,7 +271,7 @@ export default function HistoryPage() {
               })}
               {filteredInventories.length === 0 ? (
                 <tr>
-                  <td className="muted" colSpan={isAdmin ? 9 : 7}>
+                    <td className="muted" colSpan={isAdmin ? 10 : 8}>
                     No hay inventarios para los filtros seleccionados.
                   </td>
                 </tr>

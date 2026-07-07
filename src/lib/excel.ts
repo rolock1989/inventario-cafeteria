@@ -17,6 +17,7 @@ export async function downloadInventoriesExcel(inventories: InventoryRecord[], f
   const xlsx = await import("xlsx");
   const headers = [
     "Fecha del inventario",
+    "Área",
     "Usuario/turno",
     "Producto",
     "Categoria",
@@ -33,6 +34,7 @@ export async function downloadInventoriesExcel(inventories: InventoryRecord[], f
     inventory.items.filter((item) => item.difference !== 0).map((item) => {
       const row: Record<string, string | number> = {
         "Fecha del inventario": formatDateTime(inventory.submittedAt ?? inventory.createdAt),
+        Área: inventory.areaName ?? "Sin area",
         "Usuario/turno": `${inventory.userName} / ${inventory.shift}`,
         Producto: item.productName,
         Categoria: item.category,
@@ -55,6 +57,7 @@ export async function downloadInventoriesExcel(inventories: InventoryRecord[], f
   const worksheet = xlsx.utils.json_to_sheet(rows, { header: headers });
   worksheet["!cols"] = [
     { wch: 24 },
+    { wch: 18 },
     { wch: 32 },
     { wch: 28 },
     { wch: 20 },

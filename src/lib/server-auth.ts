@@ -35,7 +35,7 @@ export async function requireAuthenticatedRequest(request: NextRequest) {
 
   const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id,name,email,role,active")
+    .select("id,name,email,role,area_id,active")
     .eq("id", authData.user.id)
     .single();
 

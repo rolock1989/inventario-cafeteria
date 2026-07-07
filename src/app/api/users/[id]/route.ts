@@ -9,10 +9,22 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const role = body.role === "admin" ? "admin" : "trabajador";
+    const areaId = typeof body.areaId === "string" ? body.areaId : "";
     const active = Boolean(body.active);
 
-    if (!name || !email) {
-      return NextResponse.json({ error: "Nombre y email son obligatorios." }, { status: 400 });
+    if (!name || !email || !areaId) {
+      return NextResponse.json({ error: "Nombre, email y area son obligatorios." }, { status: 400 });
+    }
+
+    const { data: area, error: areaError } = await admin
+      .from("areas")
+      .select("id")
+      .eq("id", areaId)
+      .eq("active", true)
+      .single();
+
+    if (areaError || !area) {
+      return NextResponse.json({ error: "Selecciona un area valida." }, { status: 400 });
     }
 
     const authPatch: { email: string; password?: string; user_metadata: { name: string } } = {
@@ -36,11 +48,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         name,
         email,
         role,
+        area_id: areaId,
         active,
         updated_at: new Date().toISOString()
       })
       .eq("id", params.id)
-      .select("id,name,email,role,active")
+      .select("id,name,email,role,area_id,active,areas(id,name,active)")
       .single();
 
     if (profileError) {
