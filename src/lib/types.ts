@@ -72,6 +72,52 @@ export type InventoryRecord = {
   items: InventoryItem[];
 };
 
+export type InventoryListRecord = Omit<InventoryRecord, "items"> & {
+  totalProducts: number;
+  productsWithDifferences: number;
+  totalDifference: number;
+  totalLoss: number;
+};
+
+export type InventoryPage = {
+  records: InventoryListRecord[];
+  total: number;
+  hasMore: boolean;
+  userNames?: string[];
+};
+
+export type DashboardLatestInventory = {
+  id: string;
+  submittedAt: string;
+  userName: string;
+  areaId?: string | null;
+  areaName?: string | null;
+  shift: string;
+  totalLoss?: number;
+};
+
+export type DashboardTopMissingItem = {
+  key: string;
+  productName: string;
+  category: string;
+  unit: string;
+  areaId?: string | null;
+  areaName?: string | null;
+  missingQuantity: number;
+  totalLoss?: number;
+};
+
+export type DashboardMetrics = {
+  inventories: number;
+  totalProducts: number;
+  productsWithDifferences: number;
+  totalLoss?: number;
+  availableStartDate?: string;
+  availableEndDate?: string;
+  latestInventory?: DashboardLatestInventory;
+  topMissing: DashboardTopMissingItem[];
+};
+
 export type InventorySummary = {
   totalProducts: number;
   productsWithDifferences: number;

@@ -9,11 +9,10 @@ import {
   listAreas,
   listCategories,
   listProducts,
-  loadCurrentUser,
   updateProductRecord
 } from "@/lib/repositories";
 import { Area, Category, Product } from "@/lib/types";
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const emptyProduct: Omit<Product, "id"> = {
   name: "",
@@ -90,6 +89,7 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [selectedAreaId, setSelectedAreaId] = useState("");
+  const selectedAreaIdRef = useRef("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(emptyProduct);
@@ -100,7 +100,7 @@ export default function ProductsPage() {
   const [importing, setImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todas");
-  const [isAdmin, setIsAdmin] = useState(false);
+  const isAdmin = true;
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [bulkDeleteFailures, setBulkDeleteFailures] = useState<BulkDeleteFailure[]>([]);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -143,22 +143,19 @@ export default function ProductsPage() {
   const loadProducts = useCallback(async (areaId?: string) => {
     try {
       setLoading(true);
-      const [loadedAreas, currentUser] = await Promise.all([
-        listAreas({ activeOnly: true }),
-        loadCurrentUser()
-      ]);
-      const nextAreaId = areaId || selectedAreaId || pickDefaultArea(loadedAreas);
-      const [loadedProducts, loadedCategories, loadedAllCategories] = await Promise.all([
+      const loadedAreas = await listAreas({ activeOnly: true });
+      const nextAreaId = areaId || selectedAreaIdRef.current || pickDefaultArea(loadedAreas);
+      const [loadedProducts, loadedAllCategories] = await Promise.all([
         listProducts({ areaId: nextAreaId }),
-        listCategories({ activeOnly: true, areaId: nextAreaId }),
         listCategories({ areaId: nextAreaId })
       ]);
+      const loadedCategories = loadedAllCategories.filter((category) => category.active);
       setAreas(loadedAreas);
       setSelectedAreaId(nextAreaId);
+      selectedAreaIdRef.current = nextAreaId;
       setProducts(loadedProducts);
       setCategories(loadedCategories);
       setAllCategories(loadedAllCategories);
-      setIsAdmin(currentUser.role === "admin");
       setSelectedProductIds(new Set());
       setMessage("Productos cargados.");
     } catch (error) {
@@ -167,7 +164,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAreaId]);
+  }, []);
 
   useEffect(() => {
     loadProducts();

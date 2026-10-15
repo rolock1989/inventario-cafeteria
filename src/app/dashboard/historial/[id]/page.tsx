@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
 import { DifferenceBadge } from "@/components/DifferenceBadge";
 import { PageHeader } from "@/components/PageHeader";
+import { useAppUser } from "@/components/AppUserContext";
 import { formatCLP, formatDateTime, getInventoryTotalLoss, getItemLossAmount, summarizeInventory } from "@/lib/inventory";
-import { getInventoryRecord, loadCurrentUser } from "@/lib/repositories";
+import { getInventoryRecord } from "@/lib/repositories";
 import { InventoryItem, InventoryRecord } from "@/lib/types";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type IncidenceFilter = "todos" | "diferencias" | "faltantes" | "sobrantes" | "sin-diferencias";
 
@@ -32,27 +33,35 @@ function matchesIncidenceFilter(item: InventoryItem, filter: IncidenceFilter) {
 }
 
 export default function InventoryDetailPage({ params }: { params: { id: string } }) {
+  const user = useAppUser();
   const [inventory, setInventory] = useState<InventoryRecord | null>(null);
   const [message, setMessage] = useState("Cargando detalle...");
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const isAdmin = user.role === "admin";
   const [categoryFilter, setCategoryFilter] = useState("todas");
   const [incidenceFilter, setIncidenceFilter] = useState<IncidenceFilter>("todos");
 
-  useEffect(() => {
-    async function loadInventory() {
-      try {
-        const [record, user] = await Promise.all([getInventoryRecord(params.id), loadCurrentUser()]);
-        setInventory(record ?? null);
-        setIsAdmin(user.role === "admin");
-        setMessage(record ? "Detalle cargado." : "Inventario no encontrado.");
-      } catch (error) {
-        console.error("Error al cargar detalle de inventario", error);
-        setMessage(error instanceof Error ? error.message : "No se pudo cargar el detalle.");
-      }
+  const loadInventory = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const record = await getInventoryRecord(params.id);
+      setInventory(record ?? null);
+      setMessage(record ? "Detalle cargado." : "Inventario no encontrado.");
+    } catch (loadError) {
+      console.error("Error al cargar detalle de inventario", loadError);
+      const nextError = loadError instanceof Error ? loadError.message : "No se pudo cargar el detalle.";
+      setError(nextError);
+      setMessage("No se pudo cargar el detalle.");
+    } finally {
+      setLoading(false);
     }
-
-    loadInventory();
   }, [params.id]);
+
+  useEffect(() => {
+    loadInventory();
+  }, [loadInventory]);
 
   const inventoryItems = useMemo(() => inventory?.items ?? [], [inventory]);
   const categoryOptions = useMemo(
@@ -68,6 +77,30 @@ export default function InventoryDetailPage({ params }: { params: { id: string }
       }),
     [categoryFilter, incidenceFilter, inventoryItems]
   );
+
+  if (loading) {
+    return (
+      <section className="card loading-state" aria-busy="true">
+        <Loader2 className="spin" size={24} />
+        <p>Cargando detalle del inventario...</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <PageHeader title="Detalle de inventario" description={message} />
+        <section className="card error-state">
+          <div><h2>No se pudo cargar el inventario</h2><p className="muted">{error}</p></div>
+          <div className="actions">
+            <button className="btn" onClick={loadInventory} type="button"><RefreshCw size={18} /> Reintentar</button>
+            <Link className="btn secondary" href="/dashboard/historial"><ArrowLeft size={18} /> Volver</Link>
+          </div>
+        </section>
+      </>
+    );
+  }
 
   if (!inventory) {
     return (

@@ -12,7 +12,7 @@ import {
   moveCategoryProductsAndDelete,
   updateCategoryRecord
 } from "@/lib/repositories";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const emptyCategory: Omit<Category, "id" | "createdAt"> = {
   name: "",
@@ -23,6 +23,7 @@ export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [selectedAreaId, setSelectedAreaId] = useState("");
+  const selectedAreaIdRef = useRef("");
   const [form, setForm] = useState(emptyCategory);
   const [message, setMessage] = useState("Cargando categorias...");
   const [loading, setLoading] = useState(true);
@@ -39,9 +40,10 @@ export default function CategoriesPage() {
     try {
       setLoading(true);
       const loadedAreas = await listAreas({ activeOnly: true });
-      const nextAreaId = areaId || selectedAreaId || pickDefaultArea(loadedAreas);
+      const nextAreaId = areaId || selectedAreaIdRef.current || pickDefaultArea(loadedAreas);
       setAreas(loadedAreas);
       setSelectedAreaId(nextAreaId);
+      selectedAreaIdRef.current = nextAreaId;
       setCategories(await listCategories({ areaId: nextAreaId }));
       setMessage("Categorias cargadas.");
     } catch (error) {
@@ -50,7 +52,7 @@ export default function CategoriesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAreaId]);
+  }, []);
 
   useEffect(() => {
     loadCategories();

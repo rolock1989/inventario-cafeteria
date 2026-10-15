@@ -1,7 +1,20 @@
 import { mockInventories, mockProducts } from "@/lib/mock-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { AppUser, Area, Category, InventoryItem, InventoryRecord, Product, UserRole } from "@/lib/types";
-import { assertActiveUser, getAuthSession, getFreshAuthSession } from "@/lib/auth";
+import { startDevMeasurement } from "@/lib/dev-performance";
+import {
+  AppUser,
+  Area,
+  Category,
+  DashboardMetrics,
+  DashboardTopMissingItem,
+  InventoryItem,
+  InventoryListRecord,
+  InventoryPage,
+  InventoryRecord,
+  Product,
+  UserRole
+} from "@/lib/types";
+import { assertActiveUser, getFreshAuthSession } from "@/lib/auth";
 
 type AreaRow = {
   id: string;
@@ -47,7 +60,7 @@ type InventorySessionRow = {
   status: "draft" | "submitted";
   user_id: string | null;
   user_name: string;
-  user_email: string | null;
+  user_email?: string | null;
   area_id: string | null;
   areas?: Pick<AreaRow, "id" | "name" | "active"> | Pick<AreaRow, "id" | "name" | "active">[] | null;
   shift: string;
@@ -60,17 +73,127 @@ type InventorySessionRow = {
 type InventoryItemRow = {
   id: string;
   inventory_session_id: string;
-  product_id: string | null;
-  product_name: string;
-  category: string;
-  unit: string;
+  product_id?: string | null;
+  product_name?: string;
+  category?: string;
+  unit?: string;
   unit_price_at_time: number | null;
   loss_amount: number | null;
   physical_stock: number;
   fudo_stock: number;
   difference: number;
-  comment: string | null;
+  comment?: string | null;
 };
+
+type DashboardMetricsRpcRow = {
+  inventories?: number;
+  total_products?: number;
+  products_with_differences?: number;
+  total_loss?: number;
+  available_start_date?: string | null;
+  available_end_date?: string | null;
+  latest_inventory?: {
+    id: string;
+    submitted_at: string;
+    user_name: string;
+    area_id?: string | null;
+    area_name?: string | null;
+    shift: string;
+    total_loss?: number;
+  } | null;
+  top_missing?: Array<{
+    key: string;
+    product_name: string;
+    category: string;
+    unit: string;
+    area_id?: string | null;
+    area_name?: string | null;
+    missing_quantity: number;
+    total_loss?: number;
+  }>;
+};
+
+type InventoryHistoryRpcRow = {
+  records?: Array<{
+    id: string;
+    submitted_at: string;
+    user_name: string;
+    area_id?: string | null;
+    area_name?: string | null;
+    shift: string;
+    total_products?: number;
+    products_with_differences?: number;
+    total_difference?: number;
+    total_loss?: number;
+  }>;
+  total?: number;
+  has_more?: boolean;
+  user_names?: string[];
+};
+
+type SupabaseQueryError = {
+  code?: string;
+  message: string;
+};
+
+type SupabaseQueryResult<T> = {
+  data: T | null;
+  error: SupabaseQueryError | null;
+  count?: number | null;
+};
+
+const INVENTORY_PAGE_SIZE = 20;
+const SUPABASE_BATCH_SIZE = 1000;
+
+function isTransientQueryError(error: SupabaseQueryError) {
+  return /fetch|network|timeout|timed out|connection|503|502|504/i.test(error.message);
+}
+
+function queryErrorMessage(context: string, error: SupabaseQueryError) {
+  if (error.code === "PGRST301" || /jwt|token|session/i.test(error.message)) {
+    return "Tu sesion expiro. Inicia sesion nuevamente.";
+  }
+
+  return `${context}: ${error.message}`;
+}
+
+async function runQueryWithRetry<T>(
+  operation: () => PromiseLike<SupabaseQueryResult<T>>,
+  context: string
+): Promise<SupabaseQueryResult<T>> {
+  let lastError: SupabaseQueryError | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let result: SupabaseQueryResult<T>;
+
+    try {
+      result = await operation();
+    } catch (error) {
+      lastError = { message: error instanceof Error ? error.message : "Error de conexion." };
+
+      if (!isTransientQueryError(lastError) || attempt === 1) {
+        break;
+      }
+
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 300));
+      continue;
+    }
+
+    if (!result.error) {
+      return result;
+    }
+
+    lastError = result.error;
+
+    if (!isTransientQueryError(result.error) || attempt === 1) {
+      break;
+    }
+
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 300));
+  }
+
+  throw new Error(queryErrorMessage(context, lastError ?? { message: "Error desconocido." }));
+}
 
 export function usingSupabase() {
   return Boolean(isSupabaseConfigured && supabase);
@@ -166,10 +289,10 @@ function mapInventoryItem(row: InventoryItemRow): InventoryItem {
   return {
     id: row.id,
     productId: row.product_id ?? "",
-    productName: row.product_name,
-    category: row.category,
+    productName: row.product_name ?? "",
+    category: row.category ?? "",
     categoryId: null,
-    unit: row.unit,
+    unit: row.unit ?? "",
     unitPriceAtTime: Number(row.unit_price_at_time ?? 0),
     lossAmount: Number(row.loss_amount ?? 0),
     physicalStock: Number(row.physical_stock),
@@ -199,20 +322,14 @@ function mapInventory(row: InventorySessionRow): InventoryRecord {
 
 export async function listAreas(options: { activeOnly?: boolean } = {}) {
   requirePersistence();
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<AreaRow[]>(() => {
+    let query = client.from("areas").select("id,name,active,created_at").order("name");
+    if (options.activeOnly) query = query.eq("active", true);
+    return query;
+  }, "No se pudieron cargar las areas");
 
-  let query = requireSupabase().from("areas").select("id,name,active,created_at").order("name");
-
-  if (options.activeOnly) {
-    query = query.eq("active", true);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`No se pudieron cargar las areas: ${error.message}`);
-  }
-
-  return (data as AreaRow[]).map(mapArea);
+  return (result.data ?? []).map(mapArea);
 }
 
 export async function listProducts(options: { activeOnly?: boolean; areaId?: string | null } = {}) {
@@ -220,26 +337,18 @@ export async function listProducts(options: { activeOnly?: boolean; areaId?: str
     return options.activeOnly ? mockProducts.filter((product) => product.active) : mockProducts;
   }
 
-  let query = requireSupabase()
-    .from("products")
-    .select("id,name,category,category_id,area_id,unit,price,active,categories(id,name,active),areas(id,name,active)")
-    .order("name");
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<ProductRow[]>(() => {
+    let query = client
+      .from("products")
+      .select("id,name,category,category_id,area_id,unit,price,active,categories(id,name,active),areas(id,name,active)")
+      .order("name");
+    if (options.activeOnly) query = query.eq("active", true);
+    if (options.areaId) query = query.eq("area_id", options.areaId);
+    return query;
+  }, "No se pudieron cargar los productos");
 
-  if (options.activeOnly) {
-    query = query.eq("active", true);
-  }
-
-  if (options.areaId) {
-    query = query.eq("area_id", options.areaId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`No se pudieron cargar los productos: ${error.message}`);
-  }
-
-  return (data as ProductRow[]).map(mapProduct);
+  return (result.data ?? []).map(mapProduct);
 }
 
 export async function createProduct(input: Omit<Product, "id">) {
@@ -303,26 +412,18 @@ export async function updateProductRecord(id: string, patch: Partial<Omit<Produc
 export async function listCategories(options: { activeOnly?: boolean; areaId?: string | null } = {}) {
   requirePersistence();
 
-  let query = requireSupabase()
-    .from("categories")
-    .select("id,name,area_id,active,created_at,areas(id,name,active)")
-    .order("name");
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<CategoryRow[]>(() => {
+    let query = client
+      .from("categories")
+      .select("id,name,area_id,active,created_at,areas(id,name,active)")
+      .order("name");
+    if (options.activeOnly) query = query.eq("active", true);
+    if (options.areaId) query = query.eq("area_id", options.areaId);
+    return query;
+  }, "No se pudieron cargar las categorias");
 
-  if (options.activeOnly) {
-    query = query.eq("active", true);
-  }
-
-  if (options.areaId) {
-    query = query.eq("area_id", options.areaId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`No se pudieron cargar las categorias: ${error.message}`);
-  }
-
-  return (data as CategoryRow[]).map(mapCategory);
+  return (result.data ?? []).map(mapCategory);
 }
 
 async function getCategoryName(categoryId: string) {
@@ -474,39 +575,32 @@ export async function deleteProductRecord(id: string) {
 
 export async function listUsers(options: { activeOnly?: boolean } = {}) {
   requirePersistence();
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<ProfileRow[]>(() => {
+    let query = client
+      .from("profiles")
+      .select("id,name,email,role,area_id,active,areas(id,name,active)")
+      .order("name");
+    if (options.activeOnly) query = query.eq("active", true);
+    return query;
+  }, "No se pudieron cargar los usuarios");
 
-  let query = requireSupabase()
-    .from("profiles")
-    .select("id,name,email,role,area_id,active,areas(id,name,active)")
-    .order("name");
-
-  if (options.activeOnly) {
-    query = query.eq("active", true);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`No se pudieron cargar los usuarios: ${error.message}`);
-  }
-
-  return (data as ProfileRow[]).map(mapProfile);
+  return (result.data ?? []).map(mapProfile);
 }
 
 export async function getProfileById(id: string) {
   requirePersistence();
 
-  const { data, error } = await requireSupabase()
-    .from("profiles")
-    .select("id,name,email,role,area_id,active,areas(id,name,active)")
-    .eq("id", id)
-    .single();
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<ProfileRow>(() =>
+    client
+      .from("profiles")
+      .select("id,name,email,role,area_id,active,areas(id,name,active)")
+      .eq("id", id)
+      .single(),
+  "No se pudo cargar el usuario");
 
-  if (error) {
-    throw new Error(`No se pudo cargar el usuario: ${error.message}`);
-  }
-
-  return mapProfile(data as ProfileRow);
+  return mapProfile(result.data as ProfileRow);
 }
 
 export async function createUser(input: Omit<AppUser, "id"> & { password: string }) {
@@ -556,51 +650,383 @@ export async function deleteUserRecord(id: string) {
   }
 }
 
-export async function loadCurrentUser() {
+export async function loadCurrentUser(measurementContext = "current-user") {
   if (typeof window === "undefined") {
     throw new Error("No se pudo cargar el usuario actual en el servidor.");
   }
 
-  const session = await getAuthSession();
+  const endTotal = startDevMeasurement(`${measurementContext} / usuario actual total`);
+  const endAuth = startDevMeasurement(`${measurementContext} / autenticacion`);
+  const session = await getFreshAuthSession();
+  endAuth({ sessionAvailable: Boolean(session?.user) });
 
   if (!session?.user) {
     throw new Error("No hay sesion activa.");
   }
 
+  const endProfile = startDevMeasurement(`${measurementContext} / perfil`);
   const user = await getProfileById(session.user.id);
+  endProfile();
   assertActiveUser(user);
+  endTotal();
   return user;
 }
 
-const inventorySelect =
-  "id,status,user_id,user_name,user_email,area_id,shift,created_at,submitted_at,areas(id,name,active),profiles(name,email),inventory_items(id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment)";
+const inventoryHeaderSelect =
+  "id,status,user_id,user_name,area_id,shift,created_at,submitted_at,areas(id,name,active)";
+const inventoryItemSelect =
+  "id,inventory_session_id,product_id,product_name,category,unit,unit_price_at_time,loss_amount,physical_stock,fudo_stock,difference,comment";
 
-export async function listInventories(options: { areaId?: string | null } = {}) {
+type InventoryQueryOptions = {
+  areaId?: string | null;
+  startDate?: string;
+  endDate?: string;
+  userName?: string;
+};
+
+function dateBoundary(value: string, endOfDay = false) {
+  return new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00"}`).toISOString();
+}
+
+function filterMockInventories(records: InventoryRecord[], options: InventoryQueryOptions) {
+  const startTime = options.startDate ? new Date(dateBoundary(options.startDate)).getTime() : null;
+  const endTime = options.endDate ? new Date(dateBoundary(options.endDate, true)).getTime() : null;
+
+  return records.filter((inventory) => {
+    const submittedTime = new Date(inventory.submittedAt ?? inventory.createdAt).getTime();
+    return (
+      (!options.areaId || inventory.areaId === options.areaId) &&
+      (!options.userName || inventory.userName === options.userName) &&
+      (startTime === null || submittedTime >= startTime) &&
+      (endTime === null || submittedTime <= endTime)
+    );
+  });
+}
+
+function chunkValues<T>(values: T[], size: number) {
+  return Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
+    values.slice(index * size, (index + 1) * size)
+  );
+}
+
+async function fetchInventoryItems(sessionIds: string[], measurementLabel = "inventarios / items") {
+  if (sessionIds.length === 0) {
+    return [] as InventoryItemRow[];
+  }
+
+  const endTotal = startDevMeasurement(`${measurementLabel} total`);
+  const client = requireSupabase();
+  const rows: InventoryItemRow[] = [];
+  let requestCount = 0;
+
+  for (const sessionIdBatch of chunkValues(sessionIds, 100)) {
+    let offset = 0;
+
+    while (true) {
+      requestCount += 1;
+      const endRequest = startDevMeasurement(`${measurementLabel} solicitud ${requestCount}`);
+      const result = await runQueryWithRetry<InventoryItemRow[]>(
+        () =>
+          client
+            .from("inventory_items")
+            .select(inventoryItemSelect)
+            .in("inventory_session_id", sessionIdBatch)
+            .order("id")
+            .range(offset, offset + SUPABASE_BATCH_SIZE - 1) as unknown as PromiseLike<SupabaseQueryResult<InventoryItemRow[]>>,
+        "No se pudieron cargar los productos de los inventarios"
+      );
+      const batch = result.data ?? [];
+      rows.push(...batch);
+      endRequest({ rows: batch.length, sessions: sessionIdBatch.length });
+
+      if (batch.length < SUPABASE_BATCH_SIZE) {
+        break;
+      }
+
+      offset += SUPABASE_BATCH_SIZE;
+    }
+  }
+
+  endTotal({ requests: requestCount, rows: rows.length, sessions: sessionIds.length });
+  return rows;
+}
+
+function attachInventoryItems(sessionRows: InventorySessionRow[], itemRows: InventoryItemRow[]) {
+  const itemsBySession = itemRows.reduce<Map<string, InventoryItemRow[]>>((grouped, item) => {
+    const current = grouped.get(item.inventory_session_id) ?? [];
+    current.push(item);
+    grouped.set(item.inventory_session_id, current);
+    return grouped;
+  }, new Map());
+
+  return sessionRows.map((row) => ({
+    ...row,
+    inventory_items: itemsBySession.get(row.id) ?? []
+  }));
+}
+
+function mapInventoryListRecord(row: InventorySessionRow): InventoryListRecord {
+  const inventory = mapInventory(row);
+  const summary = inventory.items.reduce(
+    (current, item) => ({
+      totalProducts: current.totalProducts + 1,
+      productsWithDifferences: current.productsWithDifferences + (item.difference !== 0 ? 1 : 0),
+      totalDifference: current.totalDifference + item.difference,
+      totalLoss:
+        current.totalLoss +
+        (item.lossAmount > 0
+          ? item.lossAmount
+          : item.physicalStock < item.fudoStock
+            ? (item.fudoStock - item.physicalStock) * item.unitPriceAtTime
+            : 0)
+    }),
+    { totalProducts: 0, productsWithDifferences: 0, totalDifference: 0, totalLoss: 0 }
+  );
+
+  const { items: _items, ...header } = inventory;
+  return { ...header, ...summary };
+}
+
+function historicalItemLoss(item: InventoryItem) {
+  if (Number.isFinite(item.lossAmount) && item.lossAmount > 0) return item.lossAmount;
+  return item.physicalStock < item.fudoStock
+    ? (item.fudoStock - item.physicalStock) * item.unitPriceAtTime
+    : 0;
+}
+
+export async function getDashboardMetrics(options: InventoryQueryOptions = {}): Promise<DashboardMetrics> {
   if (!usingSupabase()) {
-    return [...mockInventories].sort((a, b) => {
+    const availableRecords = filterMockInventories(mockInventories, { areaId: options.areaId });
+    const records = filterMockInventories(mockInventories, options)
+      .sort((a, b) => new Date(b.submittedAt ?? b.createdAt).getTime() - new Date(a.submittedAt ?? a.createdAt).getTime());
+    const topMissing = new Map<string, DashboardTopMissingItem>();
+    let totalProducts = 0;
+    let productsWithDifferences = 0;
+    let totalLoss = 0;
+
+    records.forEach((inventory) => {
+      inventory.items.forEach((item) => {
+        totalProducts += 1;
+        productsWithDifferences += item.difference !== 0 ? 1 : 0;
+        totalLoss += historicalItemLoss(item);
+
+        if (item.physicalStock >= item.fudoStock) return;
+        const key = `${inventory.areaId ?? "sin-area"}:${item.productId || `${item.productName}:${item.category}`}`;
+        const current = topMissing.get(key);
+        topMissing.set(key, {
+          key,
+          productName: item.productName,
+          category: item.category,
+          unit: item.unit,
+          areaId: inventory.areaId,
+          areaName: inventory.areaName,
+          missingQuantity: (current?.missingQuantity ?? 0) + item.fudoStock - item.physicalStock,
+          totalLoss: (current?.totalLoss ?? 0) + historicalItemLoss(item)
+        });
+      });
+    });
+
+    const availableTimes = availableRecords.map((record) => new Date(record.submittedAt ?? record.createdAt));
+    const latest = records[0];
+    return {
+      inventories: records.length,
+      totalProducts,
+      productsWithDifferences,
+      totalLoss,
+      availableStartDate: availableTimes.length > 0 ? formatDateForRpc(new Date(Math.min(...availableTimes.map(Number)))) : undefined,
+      availableEndDate: availableTimes.length > 0 ? formatDateForRpc(new Date(Math.max(...availableTimes.map(Number)))) : undefined,
+      latestInventory: latest ? {
+        id: latest.id,
+        submittedAt: latest.submittedAt ?? latest.createdAt,
+        userName: latest.userName,
+        areaId: latest.areaId,
+        areaName: latest.areaName,
+        shift: latest.shift,
+        totalLoss: latest.items.reduce((total, item) => total + historicalItemLoss(item), 0)
+      } : undefined,
+      topMissing: Array.from(topMissing.values())
+        .sort((a, b) => b.missingQuantity - a.missingQuantity || a.key.localeCompare(b.key))
+        .slice(0, 10)
+    };
+  }
+
+  const endMeasurement = startDevMeasurement("dashboard / RPC get_dashboard_inventory_metrics");
+  const result = await runQueryWithRetry<DashboardMetricsRpcRow>(() =>
+    requireSupabase().rpc("get_dashboard_inventory_metrics", {
+      p_start_date: options.startDate || null,
+      p_end_date: options.endDate || null,
+      p_area_id: options.areaId || null
+    }) as unknown as PromiseLike<SupabaseQueryResult<DashboardMetricsRpcRow>>,
+  "No se pudieron cargar las estadisticas del dashboard");
+  const row = result.data ?? {};
+  endMeasurement({ inventories: Number(row.inventories ?? 0), products: Number(row.total_products ?? 0) });
+
+  return {
+    inventories: Number(row.inventories ?? 0),
+    totalProducts: Number(row.total_products ?? 0),
+    productsWithDifferences: Number(row.products_with_differences ?? 0),
+    ...(row.total_loss === undefined ? {} : { totalLoss: Number(row.total_loss) }),
+    availableStartDate: row.available_start_date ?? undefined,
+    availableEndDate: row.available_end_date ?? undefined,
+    latestInventory: row.latest_inventory ? {
+      id: row.latest_inventory.id,
+      submittedAt: row.latest_inventory.submitted_at,
+      userName: row.latest_inventory.user_name,
+      areaId: row.latest_inventory.area_id,
+      areaName: row.latest_inventory.area_name,
+      shift: row.latest_inventory.shift,
+      ...(row.latest_inventory.total_loss === undefined ? {} : { totalLoss: Number(row.latest_inventory.total_loss) })
+    } : undefined,
+    topMissing: (row.top_missing ?? []).map((item) => ({
+      key: item.key,
+      productName: item.product_name,
+      category: item.category,
+      unit: item.unit,
+      areaId: item.area_id,
+      areaName: item.area_name,
+      missingQuantity: Number(item.missing_quantity),
+      ...(item.total_loss === undefined ? {} : { totalLoss: Number(item.total_loss) })
+    }))
+  };
+}
+
+function formatDateForRpc(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export async function listInventorySummaries(
+  options: InventoryQueryOptions & { page?: number; pageSize?: number } = {}
+): Promise<InventoryPage> {
+  const page = Math.max(0, options.page ?? 0);
+  const pageSize = Math.max(1, options.pageSize ?? INVENTORY_PAGE_SIZE);
+
+  if (!usingSupabase()) {
+    const filtered = filterMockInventories(mockInventories, options);
+    const userNames = Array.from(new Set(filterMockInventories(mockInventories, {
+      areaId: options.areaId,
+      startDate: options.startDate,
+      endDate: options.endDate
+    }).map((inventory) => inventory.userName))).sort((a, b) => a.localeCompare(b, "es"));
+    const records = filtered
+      .sort((a, b) => new Date(b.submittedAt ?? b.createdAt).getTime() - new Date(a.submittedAt ?? a.createdAt).getTime())
+      .slice(page * pageSize, (page + 1) * pageSize)
+      .map((inventory) => mapInventoryListRecord({
+        id: inventory.id,
+        status: inventory.status,
+        user_id: inventory.userId,
+        user_name: inventory.userName,
+        user_email: null,
+        area_id: inventory.areaId ?? null,
+        shift: inventory.shift,
+        created_at: inventory.createdAt,
+        submitted_at: inventory.submittedAt ?? null,
+        inventory_items: inventory.items.map((item) => ({
+          id: item.id,
+          inventory_session_id: inventory.id,
+          product_id: item.productId,
+          product_name: item.productName,
+          category: item.category,
+          unit: item.unit,
+          unit_price_at_time: item.unitPriceAtTime,
+          loss_amount: item.lossAmount,
+          physical_stock: item.physicalStock,
+          fudo_stock: item.fudoStock,
+          difference: item.difference,
+          comment: item.comment ?? null
+        }))
+      }));
+
+    return { records, total: filtered.length, hasMore: (page + 1) * pageSize < filtered.length, userNames };
+  }
+
+  const endMeasurement = startDevMeasurement("historial / RPC get_inventory_history_page");
+  const result = await runQueryWithRetry<InventoryHistoryRpcRow>(() =>
+    requireSupabase().rpc("get_inventory_history_page", {
+      p_start_date: options.startDate || null,
+      p_end_date: options.endDate || null,
+      p_area_id: options.areaId || null,
+      p_user_name: options.userName || null,
+      p_page: page,
+      p_page_size: pageSize
+    }) as unknown as PromiseLike<SupabaseQueryResult<InventoryHistoryRpcRow>>,
+  "No se pudo cargar el historial");
+  const row = result.data ?? {};
+  const records: InventoryListRecord[] = (row.records ?? []).map((record) => ({
+    id: record.id,
+    status: "submitted",
+    createdAt: record.submitted_at,
+    submittedAt: record.submitted_at,
+    userId: "",
+    userName: record.user_name,
+    areaId: record.area_id,
+    areaName: record.area_name,
+    shift: record.shift,
+    totalProducts: Number(record.total_products ?? 0),
+    productsWithDifferences: Number(record.products_with_differences ?? 0),
+    totalDifference: Number(record.total_difference ?? 0),
+    totalLoss: Number(record.total_loss ?? 0)
+  }));
+  const total = Number(row.total ?? 0);
+  endMeasurement({ records: records.length, total, page });
+
+  return {
+    records,
+    total,
+    hasMore: Boolean(row.has_more),
+    userNames: row.user_names ?? []
+  };
+}
+
+export async function listInventories(options: InventoryQueryOptions = {}, measurementContext = "inventarios") {
+  if (!usingSupabase()) {
+    return filterMockInventories(mockInventories, options).sort((a, b) => {
       const aDate = a.submittedAt ?? a.createdAt;
       const bDate = b.submittedAt ?? b.createdAt;
       return new Date(bDate).getTime() - new Date(aDate).getTime();
     });
   }
 
-  let query = requireSupabase()
-    .from("inventory_sessions")
-    .select(inventorySelect)
-    .eq("status", "submitted")
-    .order("submitted_at", { ascending: false });
+  const client = requireSupabase();
+  const sessionRows: InventorySessionRow[] = [];
+  let offset = 0;
+  let sessionRequestCount = 0;
+  const endTotal = startDevMeasurement(`${measurementContext} / carga completa total`);
 
-  if (options.areaId) {
-    query = query.eq("area_id", options.areaId);
+  while (true) {
+    sessionRequestCount += 1;
+    const endRequest = startDevMeasurement(`${measurementContext} / inventory_sessions solicitud ${sessionRequestCount}`);
+    const result = await runQueryWithRetry<InventorySessionRow[]>(() => {
+      let query = client
+        .from("inventory_sessions")
+        .select(inventoryHeaderSelect)
+        .eq("status", "submitted")
+        .order("submitted_at", { ascending: false })
+        .range(offset, offset + 199);
+
+      if (options.areaId) query = query.eq("area_id", options.areaId);
+      if (options.startDate) query = query.gte("submitted_at", dateBoundary(options.startDate));
+      if (options.endDate) query = query.lte("submitted_at", dateBoundary(options.endDate, true));
+      if (options.userName) query = query.eq("user_name", options.userName);
+      return query;
+    }, "No se pudieron cargar los inventarios");
+    const batch = result.data ?? [];
+    endRequest({ rows: batch.length, offset });
+    sessionRows.push(...batch);
+
+    if (batch.length < 200) break;
+    offset += 200;
   }
 
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(`No se pudo cargar el historial: ${error.message}`);
-  }
-
-  return (data as InventorySessionRow[]).map(mapInventory);
+  const itemRows = await fetchInventoryItems(
+    sessionRows.map((row) => row.id),
+    `${measurementContext} / inventory_items completos`
+  );
+  const records = attachInventoryItems(sessionRows, itemRows).map(mapInventory);
+  endTotal({ sessionRequests: sessionRequestCount, sessions: sessionRows.length, items: itemRows.length });
+  return records;
 }
 
 export async function getActiveDraftInventory(userId: string, areaId?: string | null) {
@@ -608,25 +1034,24 @@ export async function getActiveDraftInventory(userId: string, areaId?: string | 
     return undefined;
   }
 
-  let query = requireSupabase()
-    .from("inventory_sessions")
-    .select(inventorySelect)
-    .eq("status", "draft")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1);
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<InventorySessionRow | null>(() => {
+    let query = client
+      .from("inventory_sessions")
+      .select(inventoryHeaderSelect)
+      .eq("status", "draft")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (areaId) query = query.eq("area_id", areaId);
+    return query.maybeSingle();
+  }, "No se pudo cargar el borrador");
+  const data = result.data;
 
-  if (areaId) {
-    query = query.eq("area_id", areaId);
-  }
+  if (!data) return undefined;
 
-  const { data, error } = await query.maybeSingle();
-
-  if (error) {
-    throw new Error(`No se pudo cargar el borrador: ${error.message}`);
-  }
-
-  return data ? mapInventory(data as InventorySessionRow) : undefined;
+  const itemRows = await fetchInventoryItems([data.id]);
+  return mapInventory({ ...(data as InventorySessionRow), inventory_items: itemRows });
 }
 
 export async function getInventoryRecord(id: string) {
@@ -634,18 +1059,19 @@ export async function getInventoryRecord(id: string) {
     return mockInventories.find((inventory) => inventory.id === id);
   }
 
-  const { data, error } = await requireSupabase()
-    .from("inventory_sessions")
-    .select(inventorySelect)
-    .eq("id", id)
-    .eq("status", "submitted")
-    .single();
+  const client = requireSupabase();
+  const result = await runQueryWithRetry<InventorySessionRow>(() =>
+    client
+      .from("inventory_sessions")
+      .select(inventoryHeaderSelect)
+      .eq("id", id)
+      .eq("status", "submitted")
+      .single(),
+  "No se pudo cargar el detalle del inventario");
+  const data = result.data as InventorySessionRow;
 
-  if (error) {
-    throw new Error(`No se pudo cargar el detalle del inventario: ${error.message}`);
-  }
-
-  return mapInventory(data as InventorySessionRow);
+  const itemRows = await fetchInventoryItems([data.id]);
+  return mapInventory({ ...(data as InventorySessionRow), inventory_items: itemRows });
 }
 
 export async function deleteInventoryRecord(id: string) {

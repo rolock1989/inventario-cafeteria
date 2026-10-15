@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, Coffee, History, Package, Users, ClipboardList, LogOut, Menu, X, Tags } from "lucide-react";
 import { loadCurrentUser } from "@/lib/repositories";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppUser } from "@/lib/types";
 import { signOut } from "@/lib/auth";
+import { AppUserProvider } from "@/components/AppUserContext";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin", "trabajador"] },
@@ -31,9 +32,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     shift: "",
     active: true
   });
+  const authRequestRef = useRef<Promise<AppUser> | null>(null);
 
   useEffect(() => {
-    loadCurrentUser()
+    authRequestRef.current ??= loadCurrentUser("app-shell");
+    authRequestRef.current
       .then((loadedUser) => {
         setUser(loadedUser);
         setAuthChecked(true);
@@ -139,7 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </section>
         ) : (
-          children
+          <AppUserProvider user={user}>{children}</AppUserProvider>
         )}
       </main>
     </div>
